@@ -74,8 +74,8 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if metricName != "counter" && metricName != "gauge" {
-		http.Error(res, "Metric name must be 'counter' or 'gauge'", http.StatusBadRequest)
+	if metricType != "counter" && metricType != "gauge" {
+		http.Error(res, "Metric type must be 'counter' or 'gauge'", http.StatusBadRequest)
 		return
 	}
 
