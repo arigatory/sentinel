@@ -60,7 +60,7 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 	log.Printf("Received request: %s, parts: %v", path, parts)
 
 	if len(parts) != 4 {
-		http.Error(res, "Bad request. Need 4 parts: update/{type}/{name}/{value}", http.StatusBadRequest)
+		http.Error(res, "Bad request. Need 4 parts: update/{type}/{name}/{value}", http.StatusNotFound)
 		return
 	}
 
