@@ -85,7 +85,7 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Invalid counter value", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Counter updated by %d", value)
+		log.Printf("Counter %s updated by %d", metricName, value)
 	}
 
 	if metricType == "gauge" {
@@ -94,7 +94,7 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Invalid gauge value", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Gauge set to %s", metricValue)
+		log.Printf("Gauge %s set to %s", metricName, metricValue)
 	}
 
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
