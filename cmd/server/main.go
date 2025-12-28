@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -78,6 +79,24 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if metricName == "counter" {
+		value, err := strconv.ParseInt(metricValue, 10, 64)
+		if err != nil {
+			http.Error(res, "Invalid counter value", http.StatusBadRequest)
+			return
+		}
+		log.Printf("Counter updated by %d", value)
+	}
+
+	if metricName == "gauge" {
+		_, err := strconv.ParseFloat(metricValue, 64)
+		if err != nil {
+			http.Error(res, "Invalid gauge value", http.StatusBadRequest)
+			return
+		}
+		log.Printf("Gauge set to %s", metricValue)
+	}
+	
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
 
 	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
