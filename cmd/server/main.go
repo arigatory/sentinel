@@ -64,18 +64,17 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	metricType := parts[1]
-	metricName := parts[2]
-	metricValue := parts[3]
+	metricType := strings.TrimSpace(parts[1])
+	metricName := strings.TrimSpace(parts[2])
+	metricValue := strings.TrimSpace(parts[3])
 
 	if metricType == "" {
 		http.Error(res, "Metric type is required", http.StatusBadRequest)
 		return
 	}
 
-	metricName = strings.TrimSpace(metricName)
-	if metricName == "" {
-		http.Error(res, "Metric name is required", http.StatusNotFound)
+	if metricName != "counter" && metricName != "gauge" {
+		http.Error(res, "Metric name must be 'counter' or 'gauge'", http.StatusBadRequest)
 		return
 	}
 
