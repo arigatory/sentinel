@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"fmt"
 	"math/rand"
+	"net/http"
 	"runtime"
+	"strconv"
 )
 
 type MetricsStorage struct {
@@ -31,8 +34,7 @@ func (m *MetricsStorage) AddCounter(name string, delta int64) {
 
 func (m *MetricsStorage) GetCounters() map[string]int64 {
 	return m.counters
-}	
-
+}
 
 func (m *MetricsStorage) CollectRuntimeMetrics() {
 	var rtm runtime.MemStats
@@ -68,4 +70,37 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 
 	m.AddCounter("PollCount", 1)
 	m.SetGauge("RandomValue", rand.Float64())
+}
+
+func sendMetric(metricType, name, value string) error {
+	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%s", metricType, name, value)
+
+	resp, err := http.Post(url, "text/plain", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to send metric: %s", resp.Status)
+	}
+	return nil
+}
+
+func (m *MetricsStorage) SendAllMetrics() {
+	for name, value := range m.gauges {
+		valueStr := strconv.FormatFloat(value, 'f', -1, 64)
+		err := sendMetric("gauge", name, valueStr)
+		if err != nil {
+			fmt.Printf("Error sending gauge %s: %v\n", name, err)
+		}
+	}
+
+	for name, value := range m.counters {
+		valueStr := strconv.FormatInt(value, 10)
+		err := sendMetric("counter", name, valueStr)
+		if err != nil {
+			fmt.Printf("Error sending counter %s: %v\n", name, err)
+		}
+	}
 }
