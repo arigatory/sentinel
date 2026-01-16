@@ -5,14 +5,20 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/arigatory/sentinel/internal/repository"
 )
+
+type server struct{
+	storage *repository.MemStorage
+}
 
 type Subj struct {
 	Product string `json:"name"`
 	Price   int    `json:"price"`
 }
 
-func updateHandler(res http.ResponseWriter, req *http.Request) {
+func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -49,15 +55,17 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		log.Printf("Counter %s updated by %d", metricName, value)
+		s.storage.UpdateCounter(metricName, value)
 	}
 
 	if metricType == "gauge" {
-		_, err := strconv.ParseFloat(metricValue, 64)
+		value, err := strconv.ParseFloat(metricValue, 64)
 		if err != nil {
 			http.Error(res, "Invalid gauge value", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Gauge %s set to %s", metricName, metricValue)
+		log.Printf("Gauge %s set to %f", metricName, value)
+		s.storage.UpdateGauge(metricName, value)
 	}
 
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
@@ -67,8 +75,10 @@ func updateHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	storage := repository.NewMemStorage()
+	srv := &server{storage: storage}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/update/", updateHandler)
+	mux.HandleFunc("/update/", srv.updateHandler)
 
 	log.Println("Starting server on: 8080")
 	err := http.ListenAndServe(`:8080`, mux)
