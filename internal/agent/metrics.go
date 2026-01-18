@@ -72,8 +72,20 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-func sendMetric(metricType, name, value string) error {
-	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%s", metricType, name, value)
+// SendMetric отправляет одну метрику на сервер
+func SendMetric(serverAddr, metricType, name string, value interface{}) error {
+	var valueStr string
+
+	switch v := value.(type) {
+	case float64:
+		valueStr = strconv.FormatFloat(v, 'g', -1, 64)
+	case int64:
+		valueStr = strconv.FormatInt(v, 10)
+	default:
+		return fmt.Errorf("unsupported value type: %T", value)
+	}
+
+	url := fmt.Sprintf("http://%s/update/%s/%s/%s", serverAddr, metricType, name, valueStr)
 
 	resp, err := http.Post(url, "text/plain", nil)
 	if err != nil {
@@ -87,18 +99,16 @@ func sendMetric(metricType, name, value string) error {
 	return nil
 }
 
-func (m *MetricsStorage) SendAllMetrics() {
+func (m *MetricsStorage) SendAllMetrics(serverAddr string) {
 	for name, value := range m.gauges {
-		valueStr := strconv.FormatFloat(value, 'f', -1, 64)
-		err := sendMetric("gauge", name, valueStr)
+		err := SendMetric(serverAddr, "gauge", name, value)
 		if err != nil {
 			fmt.Printf("Error sending gauge %s: %v\n", name, err)
 		}
 	}
 
 	for name, value := range m.counters {
-		valueStr := strconv.FormatInt(value, 10)
-		err := sendMetric("counter", name, valueStr)
+		err := SendMetric(serverAddr, "counter", name, value)
 		if err != nil {
 			fmt.Printf("Error sending counter %s: %v\n", name, err)
 		}

@@ -106,7 +106,7 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(res, "<h2>Gauges</h2>")
 	fmt.Fprintln(res, "<ul>")
 	for name, value := range gauges {
-		fmt.Fprintf(res, "<li>%s: %f</li>\n", name, value)
+		fmt.Fprintf(res, "<li>%s: %g</li>\n", name, value)
 	}
 	fmt.Fprintln(res, "</ul>")
 

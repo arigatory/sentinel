@@ -1,17 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"time"
 
 	"github.com/arigatory/sentinel/internal/agent"
 )
 
 func main() {
-	storage := agent.NewMetricsStorage()
+	cfg := parseFlags()
 
-	pollInterval := 2 * time.Second
-	reportInterval := 10 * time.Second
+	pollInterval := time.Duration(cfg.PollInterval) * time.Second
+	reportInterval := time.Duration(cfg.ReportInterval) * time.Second
 
 	pollTicker := time.NewTicker(pollInterval)
 	reportTicker := time.NewTicker(reportInterval)
@@ -19,18 +19,28 @@ func main() {
 	defer pollTicker.Stop()
 	defer reportTicker.Stop()
 
-	fmt.Println("Starting agent...")
-	fmt.Printf("Poll interval: %v\n", pollInterval)
-	fmt.Printf("Report interval: %v\n", reportInterval)
+	storage := agent.NewMetricsStorage()
+
+	log.Printf("Agent started. Server: %s, Poll: %ds, Report: %ds",
+		cfg.Address, cfg.PollInterval, cfg.ReportInterval)
 
 	for {
 		select {
 		case <-pollTicker.C:
-			fmt.Println("Collecting metrics...")
+			// Сбор метрик (включая PollCount и RandomValue)
 			storage.CollectRuntimeMetrics()
+
 		case <-reportTicker.C:
-			fmt.Println("Sending metrics...")
-			storage.SendAllMetrics()
+			// Отправка метрик
+			log.Println("Sending metrics to server...")
+
+			for name, value := range storage.GetGauges() {
+				agent.SendMetric(cfg.Address, "gauge", name, value)
+			}
+
+			for name, value := range storage.GetCounters() {
+				agent.SendMetric(cfg.Address, "counter", name, value)
+			}
 		}
 	}
 }
