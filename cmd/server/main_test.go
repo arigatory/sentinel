@@ -1,11 +1,13 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/arigatory/sentinel/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
 func TestUpdateHandler(t *testing.T) {
@@ -80,11 +82,13 @@ func TestUpdateHandler(t *testing.T) {
 			storage := repository.NewMemStorage()
 			srv := &server{storage: storage}
 
+			r := chi.NewRouter()
+			r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
+
 			request := httptest.NewRequest(tt.method, tt.url, nil)
 			w := httptest.NewRecorder()
 
-			// Act
-			srv.updateHandler(w, request)
+			r.ServeHTTP(w, request)
 
 			// Assert
 			result := w.Result()
@@ -94,6 +98,7 @@ func TestUpdateHandler(t *testing.T) {
 				t.Errorf("Expected status %d, got %d",
 					tt.want.statusCode, result.StatusCode)
 			}
+
 			if tt.want.checkStorage {
 				switch tt.want.metricType {
 				case "gauge":
@@ -114,6 +119,106 @@ func TestUpdateHandler(t *testing.T) {
 						t.Errorf("Expected counter value %d, got %d",
 							tt.want.counterValue, value)
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestValueHandler(t *testing.T) {
+	type want struct {
+		statusCode int
+		body       string
+	}
+
+	tests := []struct {
+		name      string
+		setupData func(*repository.MemStorage) // Функция для подготовки данных
+		url       string
+		want      want
+	}{
+		{
+			name: "get existing gauge",
+			setupData: func(s *repository.MemStorage) {
+				s.UpdateGauge("temperature", 36.6)
+			},
+			url: "/value/gauge/temperature",
+			want: want{
+				statusCode: http.StatusOK,
+				body:       "36.600000",
+			},
+		},
+		{
+			name: "get existing counter",
+			setupData: func(s *repository.MemStorage) {
+				s.UpdateCounter("requests", 42)
+			},
+			url: "/value/counter/requests",
+			want: want{
+				statusCode: http.StatusOK,
+				body:       "42",
+			},
+		},
+		{
+			name:      "get non-existent gauge",
+			setupData: func(s *repository.MemStorage) {},
+			url:       "/value/gauge/unknown",
+			want: want{
+				statusCode: http.StatusNotFound,
+			},
+		},
+		{
+			name:      "get non-existent counter",
+			setupData: func(s *repository.MemStorage) {},
+			url:       "/value/counter/unknown",
+			want: want{
+				statusCode: http.StatusNotFound,
+			},
+		},
+		{
+			name:      "get unknown metric type",
+			setupData: func(s *repository.MemStorage) {},
+			url:       "/value/unknown/metric",
+			want: want{
+				statusCode: http.StatusBadRequest,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			storage := repository.NewMemStorage()
+			tt.setupData(storage) // Подготовка данных
+			srv := &server{storage: storage}
+
+			r := chi.NewRouter()
+			r.Get("/value/{type}/{name}", srv.valueHandler)
+
+			request := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			w := httptest.NewRecorder()
+
+			// Act
+			r.ServeHTTP(w, request)
+
+			// Assert
+			result := w.Result()
+			defer result.Body.Close()
+
+			if result.StatusCode != tt.want.statusCode {
+				t.Errorf("Expected status %d, got %d",
+					tt.want.statusCode, result.StatusCode)
+			}
+
+			if tt.want.body != "" {
+				bodyBytes, err := io.ReadAll(result.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				bodyString := string(bodyBytes)
+				if bodyString != tt.want.body {
+					t.Errorf("Expected body '%s', got '%s'",
+						tt.want.body, bodyString)
 				}
 			}
 		})
