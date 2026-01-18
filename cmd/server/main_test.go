@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/arigatory/sentinel/internal/repository"
@@ -223,4 +224,65 @@ func TestValueHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+func TestRootHandler(t *testing.T) {
+    // Arrange
+    storage := repository.NewMemStorage()
+    
+    storage.UpdateGauge("temperature", 36.6)
+    storage.UpdateGauge("memory", 1024.5)
+    storage.UpdateCounter("requests", 42)
+    storage.UpdateCounter("errors", 5)
+    
+    srv := &server{storage: storage}
+    
+    r := chi.NewRouter()
+    r.Get("/", srv.rootHandler)
+    
+    request := httptest.NewRequest(http.MethodGet, "/", nil)
+    w := httptest.NewRecorder()
+    
+    // Act
+    r.ServeHTTP(w, request)
+    
+    // Assert
+    result := w.Result()
+    defer result.Body.Close()
+    
+    if result.StatusCode != http.StatusOK {
+        t.Errorf("Expected status 200, got %d", result.StatusCode)
+    }
+    
+    contentType := result.Header.Get("Content-Type")
+    if contentType != "text/html; charset=utf-8" {
+        t.Errorf("Expected Content-Type 'text/html; charset=utf-8', got '%s'", contentType)
+    }
+    
+    body, err := io.ReadAll(result.Body)
+    if err != nil {
+        t.Fatal(err)
+    }
+    bodyString := string(body)
+    
+    expectedStrings := []string{
+        "temperature",
+        "36.6",
+        "memory",
+        "1024.5",
+        "requests",
+        "42",
+        "errors",
+        "5",
+        "<h2>Gauges</h2>",
+        "<h2>Counters</h2>",
+        "<h1>All Metrics</h1>",
+    }
+    
+    for _, expected := range expectedStrings {
+        if !strings.Contains(bodyString, expected) {
+            t.Errorf("Expected body to contain '%s', but it was not found", expected)
+        }
+    }
 }
