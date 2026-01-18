@@ -88,6 +88,40 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 	http.Error(res, "Unknown metric type", http.StatusBadRequest)
 }
 
+func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
+	gauges := s.storage.GetAllGauges()
+	counters := s.storage.GetAllCounters()
+
+	res.Header().Set("Content-Type", "text/html; charset=utf-8")
+	res.WriteHeader(http.StatusOK)
+
+	// Сформировать HTML
+	fmt.Fprintln(res, "<!DOCTYPE html>")
+	fmt.Fprintln(res, "<html>")
+	fmt.Fprintln(res, "<head><title>Metrics</title></head>")
+	fmt.Fprintln(res, "<body>")
+	fmt.Fprintln(res, "<h1>All Metrics</h1>")
+
+	// Выводим gauges
+	fmt.Fprintln(res, "<h2>Gauges</h2>")
+	fmt.Fprintln(res, "<ul>")
+	for name, value := range gauges {
+		fmt.Fprintf(res, "<li>%s: %f</li>\n", name, value)
+	}
+	fmt.Fprintln(res, "</ul>")
+
+	// counters аналогично
+	fmt.Fprintln(res, "<h2>Counters</h2>")
+	fmt.Fprintln(res, "<ul>")
+	for name, value := range counters {
+		fmt.Fprintf(res, "<li>%s: %d</li>\n", name, value)
+	}
+	fmt.Fprintln(res, "</ul>")
+
+	fmt.Fprintln(res, "</body>")
+	fmt.Fprintln(res, "</html>")
+}
+
 func main() {
 	storage := repository.NewMemStorage()
 	srv := &server{storage: storage}
@@ -98,6 +132,7 @@ func main() {
 
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
+	r.Get("/", srv.rootHandler)
 
 	log.Println("Starting server on: 8080")
 	err := http.ListenAndServe(`:8080`, r)
