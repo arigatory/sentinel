@@ -46,7 +46,7 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Invalid gauge value", http.StatusBadRequest)
 			return
 		}
-		log.Printf("Gauge %s set to %f", metricName, value)
+		log.Printf("Gauge %s set to %g", metricName, value)
 		s.storage.UpdateGauge(metricName, value)
 	}
 
@@ -68,7 +68,7 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 		}
 		res.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		res.WriteHeader(http.StatusOK)
-		fmt.Fprintf(res, "%f", value)
+		fmt.Fprintf(res, "%g", value)
 		return
 	}
 
