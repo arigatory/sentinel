@@ -15,30 +15,24 @@ type Config struct {
 func parseFlags() *Config {
 	cfg := &Config{}
 
-	defaultAddress := getEnv("ADDRESS", "localhost:8080")
-	defaultReportInterval := getEnvAsInt("REPORT_INTERVAL", 10)
-	defaultPollInterval := getEnvAsInt("POLL_INTERVAL", 2)
-
-	flag.StringVar(&cfg.Address, "a", defaultAddress, "HTTP server address")
-	flag.IntVar(&cfg.ReportInterval, "r", defaultReportInterval, "Report interval in seconds")
-	flag.IntVar(&cfg.PollInterval, "p", defaultPollInterval, "Poll interval in seconds")
+	flag.StringVar(&cfg.Address, "a", "localhost:8080", "HTTP server address")
+	flag.IntVar(&cfg.ReportInterval, "r", 10, "Report interval in seconds")
+	flag.IntVar(&cfg.PollInterval, "p", 2, "Poll interval in seconds")
 	flag.Parse()
 
-	return cfg
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
+		cfg.Address = envAddress
 	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
+	if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
+		if value, err := strconv.Atoi(envReportInterval); err == nil {
+			cfg.ReportInterval = value
 		}
 	}
-	return defaultValue
+	if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
+		if value, err := strconv.Atoi(envPollInterval); err == nil {
+			cfg.PollInterval = value
+		}
+	}
+
+	return cfg
 }
