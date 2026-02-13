@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/arigatory/sentinel/internal/model"
+	models "github.com/arigatory/sentinel/internal/model"
 )
 
 type MetricsStorage struct {

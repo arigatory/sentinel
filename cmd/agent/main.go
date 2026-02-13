@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/arigatory/sentinel/internal/agent"
-	"github.com/arigatory/sentinel/internal/model"
+	models "github.com/arigatory/sentinel/internal/model"
 )
 
 func main() {

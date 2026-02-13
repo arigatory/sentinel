@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arigatory/sentinel/internal/model"
+	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
 	"github.com/arigatory/sentinel/internal/service"
 	"github.com/go-chi/chi/v5"
