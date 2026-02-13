@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/arigatory/sentinel/internal/agent"
+	"github.com/arigatory/sentinel/internal/model"
 )
 
 func main() {
@@ -35,11 +36,11 @@ func main() {
 			log.Println("Sending metrics to server...")
 
 			for name, value := range storage.GetGauges() {
-				agent.SendMetric(cfg.Address, "gauge", name, value)
+				agent.SendMetric(cfg.Address, models.Gauge, name, value)
 			}
 
 			for name, value := range storage.GetCounters() {
-				agent.SendMetric(cfg.Address, "counter", name, value)
+				agent.SendMetric(cfg.Address, models.Counter, name, value)
 			}
 		}
 	}

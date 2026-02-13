@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
+	"github.com/arigatory/sentinel/internal/service"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -34,7 +36,7 @@ func TestUpdateHandler(t *testing.T) {
 			want: want{
 				statusCode:   http.StatusOK,
 				checkStorage: true,
-				metricType:   "gauge",
+				metricType:   models.Gauge,
 				metricName:   "temperature",
 				gaugeValue:   36.6,
 			},
@@ -46,7 +48,7 @@ func TestUpdateHandler(t *testing.T) {
 			want: want{
 				statusCode:   http.StatusOK,
 				checkStorage: true,
-				metricType:   "counter",
+				metricType:   models.Counter,
 				metricName:   "requests",
 				counterValue: 5,
 			},
@@ -81,7 +83,8 @@ func TestUpdateHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			storage := repository.NewMemStorage()
-			srv := &server{storage: storage}
+			metricsService := service.NewMetricsService(storage)
+			srv := &server{metricsService: metricsService}
 
 			r := chi.NewRouter()
 			r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
@@ -102,7 +105,7 @@ func TestUpdateHandler(t *testing.T) {
 
 			if tt.want.checkStorage {
 				switch tt.want.metricType {
-				case "gauge":
+				case models.Gauge:
 					value, exists := storage.GetGauge(tt.want.metricName)
 					if !exists {
 						t.Errorf("Gauge '%s' should exist", tt.want.metricName)
@@ -111,7 +114,7 @@ func TestUpdateHandler(t *testing.T) {
 						t.Errorf("Expected gauge value %f, got %f",
 							tt.want.gaugeValue, value)
 					}
-				case "counter":
+				case models.Counter:
 					value, exists := storage.GetCounter(tt.want.metricName)
 					if !exists {
 						t.Errorf("Counter '%s' should exist", tt.want.metricName)
@@ -191,7 +194,8 @@ func TestValueHandler(t *testing.T) {
 			// Arrange
 			storage := repository.NewMemStorage()
 			tt.setupData(storage)
-			srv := &server{storage: storage}
+			metricsService := service.NewMetricsService(storage)
+			srv := &server{metricsService: metricsService}
 
 			r := chi.NewRouter()
 			r.Get("/value/{type}/{name}", srv.valueHandler)
@@ -235,7 +239,8 @@ func TestRootHandler(t *testing.T) {
 	storage.UpdateCounter("requests", 42)
 	storage.UpdateCounter("errors", 5)
 
-	srv := &server{storage: storage}
+	metricsService := service.NewMetricsService(storage)
+	srv := &server{metricsService: metricsService}
 
 	r := chi.NewRouter()
 	r.Get("/", srv.rootHandler)

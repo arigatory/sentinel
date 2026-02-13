@@ -1,18 +1,21 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 
+	"github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
+	"github.com/arigatory/sentinel/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 type server struct {
-	storage *repository.MemStorage
+	metricsService *service.MetricsService
 }
 
 func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
@@ -25,29 +28,29 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if metricType != "counter" && metricType != "gauge" {
+	if metricType != models.Counter && metricType != models.Gauge {
 		http.Error(res, "Metric type must be 'counter' or 'gauge'", http.StatusBadRequest)
 		return
 	}
 
-	if metricType == "counter" {
+	if metricType == models.Counter {
 		value, err := strconv.ParseInt(metricValue, 10, 64)
 		if err != nil {
 			http.Error(res, "Invalid counter value", http.StatusBadRequest)
 			return
 		}
 		log.Printf("Counter %s updated by %d", metricName, value)
-		s.storage.UpdateCounter(metricName, value)
+		s.metricsService.UpdateCounter(metricName, value)
 	}
 
-	if metricType == "gauge" {
+	if metricType == models.Gauge {
 		value, err := strconv.ParseFloat(metricValue, 64)
 		if err != nil {
 			http.Error(res, "Invalid gauge value", http.StatusBadRequest)
 			return
 		}
 		log.Printf("Gauge %s set to %g", metricName, value)
-		s.storage.UpdateGauge(metricName, value)
+		s.metricsService.UpdateGauge(metricName, value)
 	}
 
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
@@ -60,10 +63,14 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 	metricType := chi.URLParam(req, "type")
 	metricName := chi.URLParam(req, "name")
 
-	if metricType == "gauge" {
-		value, exists := s.storage.GetGauge(metricName)
-		if !exists {
-			http.Error(res, "Gauge not found", http.StatusNotFound)
+	if metricType == models.Gauge {
+		value, err := s.metricsService.GetGauge(metricName)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Gauge not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
 			return
 		}
 		res.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -72,10 +79,14 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if metricType == "counter" {
-		value, exists := s.storage.GetCounter(metricName)
-		if !exists {
-			http.Error(res, "Counter not found", http.StatusNotFound)
+	if metricType == models.Counter {
+		value, err := s.metricsService.GetCounter(metricName)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Counter not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
 			return
 		}
 
@@ -89,8 +100,7 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
-	gauges := s.storage.GetAllGauges()
-	counters := s.storage.GetAllCounters()
+	gauges, counters := s.metricsService.GetAllMetrics()
 
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.WriteHeader(http.StatusOK)
@@ -126,7 +136,8 @@ func main() {
 	cfg := parseFlags()
 
 	storage := repository.NewMemStorage()
-	srv := &server{storage: storage}
+	metricsService := service.NewMetricsService(storage)
+	srv := &server{metricsService: metricsService}
 
 	r := chi.NewRouter()
 

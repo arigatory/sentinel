@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+
+	"github.com/arigatory/sentinel/internal/model"
 )
 
 type MetricsStorage struct {
@@ -101,14 +103,14 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 
 func (m *MetricsStorage) SendAllMetrics(serverAddr string) {
 	for name, value := range m.gauges {
-		err := SendMetric(serverAddr, "gauge", name, value)
+		err := SendMetric(serverAddr, models.Gauge, name, value)
 		if err != nil {
 			fmt.Printf("Error sending gauge %s: %v\n", name, err)
 		}
 	}
 
 	for name, value := range m.counters {
-		err := SendMetric(serverAddr, "counter", name, value)
+		err := SendMetric(serverAddr, models.Counter, name, value)
 		if err != nil {
 			fmt.Printf("Error sending counter %s: %v\n", name, err)
 		}
