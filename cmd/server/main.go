@@ -156,7 +156,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Starting server on: %s", cfg.Address)
+	log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
