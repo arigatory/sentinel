@@ -4,15 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
+	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
 	"github.com/arigatory/sentinel/internal/service"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 )
 
 type server struct {
@@ -136,13 +138,17 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 func main() {
 	cfg := parseFlags()
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
 	srv := &server{metricsService: metricsService}
 
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(customMiddleware.Logger(logger))
 
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
