@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
@@ -147,8 +148,16 @@ func main() {
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)
 
+	server := &http.Server{
+		Addr:         cfg.Address,
+		Handler:      r,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	log.Printf("Starting server on: %s", cfg.Address)
-	err := http.ListenAndServe(cfg.Address, r)
+	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
