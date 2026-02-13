@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"os"
 )
 
 type Config struct {
@@ -14,6 +15,11 @@ func parseFlags() *Config {
 
 	flag.StringVar(&cfg.Address, "a", "localhost:8080", "Server address")
 	flag.Parse()
+
+	// Переменная окружения имеет высший приоритет
+	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
+		cfg.Address = envAddress
+	}
 
 	return cfg
 }
