@@ -230,6 +230,7 @@ func main() {
 
 	r.Use(middleware.StripSlashes)
 	r.Use(customMiddleware.Logger(logger))
+	r.Use(customMiddleware.GzipMiddleware)
 
 	r.Post("/update", srv.updateJSONHandler)
 	r.Post("/value", srv.valueJSONHandler)
