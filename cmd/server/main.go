@@ -224,6 +224,21 @@ func main() {
 
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
+
+	// Настраиваем персистентность
+	if cfg.FileStoragePath != "" {
+		syncWrite := cfg.StoreInterval == 0
+		metricsService.ConfigurePersistence(cfg.FileStoragePath, syncWrite)
+
+		if cfg.Restore {
+			if err := metricsService.Load(); err != nil {
+				log.Printf("Warning: could not load metrics from %s: %v", cfg.FileStoragePath, err)
+			} else {
+				log.Printf("Metrics loaded from %s", cfg.FileStoragePath)
+			}
+		}
+	}
+
 	srv := &server{metricsService: metricsService}
 
 	r := chi.NewRouter()
@@ -238,7 +253,7 @@ func main() {
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)
 
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:         cfg.Address,
 		Handler:      r,
 		ReadTimeout:  5 * time.Second,
@@ -246,10 +261,20 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
-	err := server.ListenAndServe()
-	if err != nil {
-		log.Fatal(err)
+	// Периодическое сохранение (если интервал > 0)
+	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Duration(cfg.StoreInterval) * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				metricsService.Save()
+				log.Printf("Metrics saved to %s", cfg.FileStoragePath)
+			}
+		}()
 	}
 
+	log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
 }
