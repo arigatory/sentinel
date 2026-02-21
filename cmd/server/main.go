@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -102,6 +103,84 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 	http.Error(res, "Unknown metric type", http.StatusBadRequest)
 }
 
+func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
+	var m models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&m); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	switch m.MType {
+	case models.Counter:
+		if m.Delta == nil {
+			http.Error(res, "delta is required for counter", http.StatusBadRequest)
+			return
+		}
+		s.metricsService.UpdateCounter(m.ID, *m.Delta)
+		updated, _ := s.metricsService.GetCounter(m.ID)
+		m.Delta = &updated
+	case models.Gauge:
+		if m.Value == nil {
+			http.Error(res, "value is required for gauge", http.StatusBadRequest)
+			return
+		}
+		s.metricsService.UpdateGauge(m.ID, *m.Value)
+	default:
+		http.Error(res, "unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(m); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
+func (s *server) valueJSONHandler(res http.ResponseWriter, req *http.Request) {
+	var m models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&m); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	switch m.MType {
+	case models.Gauge:
+		value, err := s.metricsService.GetGauge(m.ID)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Gauge not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		m.Value = &value
+	case models.Counter:
+		value, err := s.metricsService.GetCounter(m.ID)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Counter not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		m.Delta = &value
+	default:
+		http.Error(res, "unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(m); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
 func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	gauges, counters := s.metricsService.GetAllMetrics()
 
@@ -150,6 +229,8 @@ func main() {
 
 	r.Use(customMiddleware.Logger(logger))
 
+	r.Post("/update", srv.updateJSONHandler)
+	r.Post("/value", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)

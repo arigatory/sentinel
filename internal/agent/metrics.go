@@ -1,11 +1,12 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"runtime"
-	"strconv"
 
 	models "github.com/arigatory/sentinel/internal/model"
 )
@@ -74,22 +75,29 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-// SendMetric отправляет одну метрику на сервер
+// SendMetric отправляет одну метрику на сервер в формате JSON
 func SendMetric(serverAddr, metricType, name string, value interface{}) error {
-	var valueStr string
+	m := models.Metrics{
+		ID:    name,
+		MType: metricType,
+	}
 
 	switch v := value.(type) {
 	case float64:
-		valueStr = strconv.FormatFloat(v, 'g', -1, 64)
+		m.Value = &v
 	case int64:
-		valueStr = strconv.FormatInt(v, 10)
+		m.Delta = &v
 	default:
 		return fmt.Errorf("unsupported value type: %T", value)
 	}
 
-	url := fmt.Sprintf("http://%s/update/%s/%s/%s", serverAddr, metricType, name, valueStr)
+	body, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
 
-	resp, err := http.Post(url, "text/plain", nil)
+	url := fmt.Sprintf("http://%s/update", serverAddr)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
