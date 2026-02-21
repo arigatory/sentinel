@@ -230,7 +230,9 @@ func main() {
 	r.Use(customMiddleware.Logger(logger))
 
 	r.Post("/update", srv.updateJSONHandler)
+	r.Post("/update/", srv.updateJSONHandler)
 	r.Post("/value", srv.valueJSONHandler)
+	r.Post("/value/", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)
