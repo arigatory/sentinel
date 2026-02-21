@@ -16,6 +16,7 @@ import (
 	"github.com/arigatory/sentinel/internal/repository"
 	"github.com/arigatory/sentinel/internal/service"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type server struct {
@@ -227,12 +228,11 @@ func main() {
 
 	r := chi.NewRouter()
 
+	r.Use(middleware.StripSlashes)
 	r.Use(customMiddleware.Logger(logger))
 
 	r.Post("/update", srv.updateJSONHandler)
-	r.Post("/update/", srv.updateJSONHandler)
 	r.Post("/value", srv.valueJSONHandler)
-	r.Post("/value/", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)
