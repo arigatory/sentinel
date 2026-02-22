@@ -12,12 +12,12 @@ var (
 )
 
 type MetricsService struct {
-	storage   *repository.MemStorage
+	storage   repository.Storage
 	filePath  string
 	syncWrite bool
 }
 
-func NewMetricsService(storage *repository.MemStorage) *MetricsService {
+func NewMetricsService(storage repository.Storage) *MetricsService {
 	return &MetricsService{
 		storage: storage,
 	}

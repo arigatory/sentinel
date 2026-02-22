@@ -1,5 +1,7 @@
 package repository
 
+var _ Storage = (*MemStorage)(nil)
+
 type MemStorage struct {
 	counters map[string]int64
 	gauges   map[string]float64

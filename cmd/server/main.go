@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
@@ -261,20 +264,52 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Периодическое сохранение (если интервал > 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
 		go func() {
 			ticker := time.NewTicker(time.Duration(cfg.StoreInterval) * time.Second)
 			defer ticker.Stop()
-			for range ticker.C {
-				metricsService.Save()
-				log.Printf("Metrics saved to %s", cfg.FileStoragePath)
+			for {
+				select {
+				case <-ticker.C:
+					metricsService.Save()
+					log.Printf("Metrics saved to %s", cfg.FileStoragePath)
+				case <-ctx.Done():
+					log.Println("Stopping periodic save goroutine")
+					return
+				}
 			}
 		}()
 	}
 
-	log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
-	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	sig := <-sigChan
+	log.Printf("Received signal: %v, initiating graceful shutdown", sig)
+
+	cancel()
+
+	if cfg.FileStoragePath != "" {
+		metricsService.Save()
+		log.Printf("Final metrics save to %s completed", cfg.FileStoragePath)
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	} else {
+		log.Println("HTTP server stopped gracefully")
 	}
 }
