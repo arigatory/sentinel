@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"runtime"
-	"strconv"
 
 	models "github.com/arigatory/sentinel/internal/model"
 )
@@ -74,22 +76,48 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-// SendMetric отправляет одну метрику на сервер
+// SendMetric отправляет одну метрику на сервер в формате JSON
 func SendMetric(serverAddr, metricType, name string, value interface{}) error {
-	var valueStr string
+	m := models.Metrics{
+		ID:    name,
+		MType: metricType,
+	}
 
 	switch v := value.(type) {
 	case float64:
-		valueStr = strconv.FormatFloat(v, 'g', -1, 64)
+		m.Value = &v
 	case int64:
-		valueStr = strconv.FormatInt(v, 10)
+		m.Delta = &v
 	default:
 		return fmt.Errorf("unsupported value type: %T", value)
 	}
 
-	url := fmt.Sprintf("http://%s/update/%s/%s/%s", serverAddr, metricType, name, valueStr)
+	body, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
 
-	resp, err := http.Post(url, "text/plain", nil)
+	// Сжимаем тело запроса
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err = gw.Write(body); err != nil {
+		return err
+	}
+	if err = gw.Close(); err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("http://%s/update", serverAddr)
+	req, err := http.NewRequest(http.MethodPost, url, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

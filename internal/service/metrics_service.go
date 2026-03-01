@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 
 	"github.com/arigatory/sentinel/internal/repository"
 )
@@ -11,21 +12,54 @@ var (
 )
 
 type MetricsService struct {
-	storage *repository.MemStorage
+	storage   repository.Storage
+	filePath  string
+	syncWrite bool
 }
 
-func NewMetricsService(storage *repository.MemStorage) *MetricsService {
+func NewMetricsService(storage repository.Storage) *MetricsService {
 	return &MetricsService{
 		storage: storage,
 	}
 }
 
+func (s *MetricsService) ConfigurePersistence(filePath string, syncWrite bool) {
+	s.filePath = filePath
+	s.syncWrite = syncWrite
+}
+
+func (s *MetricsService) save() {
+	if s.filePath == "" {
+		return
+	}
+	if err := s.storage.Save(s.filePath); err != nil {
+		log.Printf("Error saving metrics to file: %v", err)
+	}
+}
+
 func (s *MetricsService) UpdateCounter(name string, delta int64) {
 	s.storage.UpdateCounter(name, delta)
+	if s.syncWrite {
+		s.save()
+	}
 }
 
 func (s *MetricsService) UpdateGauge(name string, value float64) {
 	s.storage.UpdateGauge(name, value)
+	if s.syncWrite {
+		s.save()
+	}
+}
+
+func (s *MetricsService) Save() {
+	s.save()
+}
+
+func (s *MetricsService) Load() error {
+	if s.filePath == "" {
+		return nil
+	}
+	return s.storage.Load(s.filePath)
 }
 
 func (s *MetricsService) GetCounter(name string) (int64, error) {

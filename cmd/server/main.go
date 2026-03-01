@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
+	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
 	"github.com/arigatory/sentinel/internal/service"
@@ -100,6 +107,84 @@ func (s *server) valueHandler(res http.ResponseWriter, req *http.Request) {
 	http.Error(res, "Unknown metric type", http.StatusBadRequest)
 }
 
+func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
+	var m models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&m); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	switch m.MType {
+	case models.Counter:
+		if m.Delta == nil {
+			http.Error(res, "delta is required for counter", http.StatusBadRequest)
+			return
+		}
+		s.metricsService.UpdateCounter(m.ID, *m.Delta)
+		updated, _ := s.metricsService.GetCounter(m.ID)
+		m.Delta = &updated
+	case models.Gauge:
+		if m.Value == nil {
+			http.Error(res, "value is required for gauge", http.StatusBadRequest)
+			return
+		}
+		s.metricsService.UpdateGauge(m.ID, *m.Value)
+	default:
+		http.Error(res, "unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(m); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
+func (s *server) valueJSONHandler(res http.ResponseWriter, req *http.Request) {
+	var m models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&m); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	switch m.MType {
+	case models.Gauge:
+		value, err := s.metricsService.GetGauge(m.ID)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Gauge not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		m.Value = &value
+	case models.Counter:
+		value, err := s.metricsService.GetCounter(m.ID)
+		if err != nil {
+			if errors.Is(err, service.ErrMetricNotFound) {
+				http.Error(res, "Counter not found", http.StatusNotFound)
+				return
+			}
+			http.Error(res, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		m.Delta = &value
+	default:
+		http.Error(res, "unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(m); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
 func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	gauges, counters := s.metricsService.GetAllMetrics()
 
@@ -136,19 +221,42 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 func main() {
 	cfg := parseFlags()
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
+
+	// Настраиваем персистентность
+	if cfg.FileStoragePath != "" {
+		syncWrite := cfg.StoreInterval == 0
+		metricsService.ConfigurePersistence(cfg.FileStoragePath, syncWrite)
+
+		if cfg.Restore {
+			if err := metricsService.Load(); err != nil {
+				log.Printf("Warning: could not load metrics from %s: %v", cfg.FileStoragePath, err)
+			} else {
+				log.Printf("Metrics loaded from %s", cfg.FileStoragePath)
+			}
+		}
+	}
+
 	srv := &server{metricsService: metricsService}
 
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(middleware.StripSlashes)
+	r.Use(customMiddleware.Logger(logger))
+	r.Use(customMiddleware.GzipMiddleware)
 
+	r.Post("/update", srv.updateJSONHandler)
+	r.Post("/value", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
 	r.Get("/", srv.rootHandler)
 
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:         cfg.Address,
 		Handler:      r,
 		ReadTimeout:  5 * time.Second,
@@ -156,10 +264,52 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
-	err := server.ListenAndServe()
-	if err != nil {
-		log.Fatal(err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Duration(cfg.StoreInterval) * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					metricsService.Save()
+					log.Printf("Metrics saved to %s", cfg.FileStoragePath)
+				case <-ctx.Done():
+					log.Println("Stopping periodic save goroutine")
+					return
+				}
+			}
+		}()
 	}
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	sig := <-sigChan
+	log.Printf("Received signal: %v, initiating graceful shutdown", sig)
+
+	cancel()
+
+	if cfg.FileStoragePath != "" {
+		metricsService.Save()
+		log.Printf("Final metrics save to %s completed", cfg.FileStoragePath)
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	} else {
+		log.Println("HTTP server stopped gracefully")
+	}
 }
