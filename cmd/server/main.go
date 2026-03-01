@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arigatory/sentinel/internal/config/db"
 	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
@@ -24,6 +25,7 @@ import (
 
 type server struct {
 	metricsService *service.MetricsService
+	db             *db.DB
 }
 
 func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
@@ -218,6 +220,24 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(res, "</html>")
 }
 
+func (s *server) pingHandler(res http.ResponseWriter, req *http.Request) {
+	if s.db == nil {
+		http.Error(res, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(req.Context(), 1*time.Second)
+	defer cancel()
+
+	if err := s.db.Ping(ctx); err != nil {
+		log.Printf("Database ping failed: %v", err)
+		http.Error(res, "Database connection failed", http.StatusInternalServerError)
+		return
+	}
+
+	res.WriteHeader(http.StatusOK)
+}
+
 func main() {
 	cfg := parseFlags()
 
@@ -227,6 +247,20 @@ func main() {
 
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
+
+	// Подключение к базе данных (опционально)
+	var database *db.DB
+	if cfg.DatabaseDSN != "" {
+		var err error
+		database, err = db.NewDB(cfg.DatabaseDSN)
+		if err != nil {
+			log.Printf("Warning: failed to connect to database: %v", err)
+			log.Println("Server will continue without database connection")
+		} else {
+			log.Println("Successfully connected to database")
+			defer database.Close()
+		}
+	}
 
 	// Настраиваем персистентность
 	if cfg.FileStoragePath != "" {
@@ -242,7 +276,10 @@ func main() {
 		}
 	}
 
-	srv := &server{metricsService: metricsService}
+	srv := &server{
+		metricsService: metricsService,
+		db:             database,
+	}
 
 	r := chi.NewRouter()
 
@@ -254,6 +291,7 @@ func main() {
 	r.Post("/value", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
+	r.Get("/ping", srv.pingHandler)
 	r.Get("/", srv.rootHandler)
 
 	httpServer := &http.Server{
