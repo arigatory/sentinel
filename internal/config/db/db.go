@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -59,4 +62,28 @@ func (db *DB) Close() {
 
 func (db *DB) Pool() *pgxpool.Pool {
 	return db.pool
+}
+
+// RunMigrations выполняет миграции базы данных используя golang-migrate
+func (db *DB) RunMigrations(dsn string) error {
+	if db.pool == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
+	// Создаем экземпляр migrate с путем к файлам миграций
+	m, err := migrate.New(
+		"file://migrations",
+		dsn,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	// Применяем все миграции
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
 }

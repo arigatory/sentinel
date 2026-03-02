@@ -245,25 +245,51 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	storage := repository.NewMemStorage()
-	metricsService := service.NewMetricsService(storage)
-
-	// Подключение к базе данных (опционально)
+	var storage repository.Storage
 	var database *db.DB
+	var metricsService *service.MetricsService
+
+	// Логика выбора хранилища:
+	// 1. PostgreSQL (если есть DATABASE_DSN)
+	// 2. File storage (если есть FILE_STORAGE_PATH)
+	// 3. Memory storage (fallback)
+
 	if cfg.DatabaseDSN != "" {
+		// Пытаемся подключиться к PostgreSQL
 		var err error
 		database, err = db.NewDB(cfg.DatabaseDSN)
 		if err != nil {
 			log.Printf("Warning: failed to connect to database: %v", err)
-			log.Println("Server will continue without database connection")
+			log.Println("Falling back to file or memory storage")
 		} else {
-			log.Println("Successfully connected to database")
-			defer database.Close()
+			log.Println("Successfully connected to PostgreSQL")
+
+			// Выполняем миграции
+			if err := database.RunMigrations(cfg.DatabaseDSN); err != nil {
+				log.Printf("Warning: failed to run migrations: %v", err)
+				log.Println("Falling back to file or memory storage")
+				database.Close()
+				database = nil
+			} else {
+				log.Println("Database migrations completed successfully")
+				// Используем PostgreSQL storage
+				storage = repository.NewPostgresStorage(database.Pool())
+				log.Println("Using PostgreSQL storage for metrics")
+				defer database.Close()
+			}
 		}
 	}
 
-	// Настраиваем персистентность
-	if cfg.FileStoragePath != "" {
+	// Если PostgreSQL недоступен, используем Memory storage
+	if storage == nil {
+		storage = repository.NewMemStorage()
+		log.Println("Using in-memory storage for metrics")
+	}
+
+	metricsService = service.NewMetricsService(storage)
+
+	// Настраиваем персистентность для file storage (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" {
 		syncWrite := cfg.StoreInterval == 0
 		metricsService.ConfigurePersistence(cfg.FileStoragePath, syncWrite)
 
@@ -305,7 +331,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
+	// Периодическое сохранение в файл (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
 		go func() {
 			ticker := time.NewTicker(time.Duration(cfg.StoreInterval) * time.Second)
 			defer ticker.Stop()
@@ -337,7 +364,8 @@ func main() {
 
 	cancel()
 
-	if cfg.FileStoragePath != "" {
+	// Финальное сохранение в файл (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" {
 		metricsService.Save()
 		log.Printf("Final metrics save to %s completed", cfg.FileStoragePath)
 	}
