@@ -3,13 +3,16 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"runtime"
+	"time"
 
 	models "github.com/arigatory/sentinel/internal/model"
+	"github.com/arigatory/sentinel/pkg/retry"
 )
 
 type MetricsStorage struct {
@@ -93,37 +96,54 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 
 	body, err := json.Marshal(m)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal metric: %w", err)
 	}
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	if _, err = gw.Write(body); err != nil {
-		return err
+		return fmt.Errorf("failed to compress metric: %w", err)
 	}
 	if err = gw.Close(); err != nil {
-		return err
+		return fmt.Errorf("failed to close gzip writer: %w", err)
 	}
 
 	url := fmt.Sprintf("http://%s/update", serverAddr)
-	req, err := http.NewRequest(http.MethodPost, url, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	cfg := retry.DefaultConfig()
+	cfg.Classifier = retry.NewNetworkErrorClassifier()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to send metric: %s", resp.Status)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = retry.Do(ctx, cfg, func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server returned error status: %s", resp.Status)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to send metric after retries: %w", err)
 	}
+
 	return nil
 }
 
@@ -150,37 +170,54 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 
 	body, err := json.Marshal(metrics)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal metrics: %w", err)
 	}
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	if _, err = gw.Write(body); err != nil {
-		return err
+		return fmt.Errorf("failed to compress metrics: %w", err)
 	}
 	if err = gw.Close(); err != nil {
-		return err
+		return fmt.Errorf("failed to close gzip writer: %w", err)
 	}
 
 	url := fmt.Sprintf("http://%s/updates/", serverAddr)
-	req, err := http.NewRequest(http.MethodPost, url, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	cfg := retry.DefaultConfig()
+	cfg.Classifier = retry.NewNetworkErrorClassifier()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to send metrics batch: %s", resp.Status)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = retry.Do(ctx, cfg, func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server returned error status: %s", resp.Status)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to send metrics batch after retries: %w", err)
 	}
+
 	return nil
 }
 

@@ -410,7 +410,7 @@ func main() {
 	go func() {
 		log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
+			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
 
