@@ -116,6 +116,10 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
 	err = retry.Do(ctx, cfg, func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
 		if err != nil {
@@ -125,9 +129,6 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
 
-		client := &http.Client{
-			Timeout: 5 * time.Second,
-		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to send request: %w", err)
@@ -190,6 +191,10 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
 	err = retry.Do(ctx, cfg, func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
 		if err != nil {
@@ -199,9 +204,6 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
 
-		client := &http.Client{
-			Timeout: 5 * time.Second,
-		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to send request: %w", err)
