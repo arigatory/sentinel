@@ -35,7 +35,7 @@ func (c *PostgresErrorClassifier) Classify(err error) ErrorClassification {
 func isNetworkError(err error) bool {
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		if netErr.Temporary() || netErr.Timeout() {
+		if netErr.Timeout() {
 			return true
 		}
 	}

@@ -19,7 +19,7 @@ func (c *NetworkErrorClassifier) Classify(err error) ErrorClassification {
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		if netErr.Temporary() || netErr.Timeout() {
+		if netErr.Timeout() {
 			return Retriable
 		}
 	}
