@@ -1,5 +1,7 @@
 package repository
 
+import models "github.com/arigatory/sentinel/internal/model"
+
 var _ Storage = (*MemStorage)(nil)
 
 type MemStorage struct {
@@ -41,10 +43,25 @@ func (m *MemStorage) GetAllGauges() map[string]float64 {
 }
 
 func (m *MemStorage) GetAllCounters() map[string]int64 {
-	// Создаем копию карты
 	result := make(map[string]int64, len(m.counters))
 	for name, value := range m.counters {
 		result[name] = value
 	}
 	return result
+}
+
+func (m *MemStorage) UpdateBatch(metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Counter:
+			if metric.Delta != nil {
+				m.counters[metric.ID] += *metric.Delta
+			}
+		case models.Gauge:
+			if metric.Value != nil {
+				m.gauges[metric.ID] = *metric.Value
+			}
+		}
+	}
+	return nil
 }

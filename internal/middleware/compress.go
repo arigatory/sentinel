@@ -7,16 +7,14 @@ import (
 	"strings"
 )
 
-// compressibleTypes — типы контента, которые нужно сжимать.
 var compressibleTypes = []string{
 	"application/json",
 	"text/html",
 }
 
-// gzipResponseWriter оборачивает http.ResponseWriter и пишет сжатые данные.
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	writer io.Writer // либо gzip.Writer, либо оригинальный ResponseWriter
+	writer io.Writer
 }
 
 func (g *gzipResponseWriter) Write(b []byte) (int, error) {
@@ -32,11 +30,8 @@ func isCompressible(contentType string) bool {
 	return false
 }
 
-// GzipMiddleware сжимает ответ при наличии Accept-Encoding: gzip
-// и распаковывает входящий запрос при наличии Content-Encoding: gzip.
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Декомпрессия входящего запроса
 		if r.Header.Get("Content-Encoding") == "gzip" {
 			gr, err := gzip.NewReader(r.Body)
 			if err != nil {
@@ -47,15 +42,11 @@ func GzipMiddleware(next http.Handler) http.Handler {
 			r.Body = gr
 		}
 
-		// Компрессия ответа, если клиент поддерживает gzip
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Используем lazy-writer: сжимаем только compressible типы.
-		// Оборачиваем ResponseWriter в перехватчик, который при первом
-		// вызове WriteHeader/Write решает, нужно ли сжимать.
 		lw := &lazyGzipWriter{ResponseWriter: w}
 		defer lw.close()
 
@@ -63,7 +54,6 @@ func GzipMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// lazyGzipWriter откладывает решение о сжатии до момента, когда известен Content-Type.
 type lazyGzipWriter struct {
 	http.ResponseWriter
 	gz          *gzip.Writer

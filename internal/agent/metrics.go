@@ -76,7 +76,6 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-// SendMetric отправляет одну метрику на сервер в формате JSON
 func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 	m := models.Metrics{
 		ID:    name,
@@ -97,7 +96,6 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 		return err
 	}
 
-	// Сжимаем тело запроса
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	if _, err = gw.Write(body); err != nil {
@@ -143,4 +141,69 @@ func (m *MetricsStorage) SendAllMetrics(serverAddr string) {
 			fmt.Printf("Error sending counter %s: %v\n", name, err)
 		}
 	}
+}
+
+func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	body, err := json.Marshal(metrics)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err = gw.Write(body); err != nil {
+		return err
+	}
+	if err = gw.Close(); err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("http://%s/updates/", serverAddr)
+	req, err := http.NewRequest(http.MethodPost, url, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to send metrics batch: %s", resp.Status)
+	}
+	return nil
+}
+
+func (m *MetricsStorage) SendAllMetricsBatch(serverAddr string) error {
+	var metrics []models.Metrics
+
+	for name, value := range m.gauges {
+		v := value
+		metrics = append(metrics, models.Metrics{
+			ID:    name,
+			MType: models.Gauge,
+			Value: &v,
+		})
+	}
+
+	for name, delta := range m.counters {
+		d := delta
+		metrics = append(metrics, models.Metrics{
+			ID:    name,
+			MType: models.Counter,
+			Delta: &d,
+		})
+	}
+
+	return SendMetricsBatch(serverAddr, metrics)
 }

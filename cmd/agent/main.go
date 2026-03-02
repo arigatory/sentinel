@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/arigatory/sentinel/internal/agent"
-	models "github.com/arigatory/sentinel/internal/model"
 )
 
 func main() {
@@ -28,19 +27,13 @@ func main() {
 	for {
 		select {
 		case <-pollTicker.C:
-			// Сбор метрик (включая PollCount и RandomValue)
 			storage.CollectRuntimeMetrics()
 
 		case <-reportTicker.C:
-			// Отправка метрик
 			log.Println("Sending metrics to server...")
 
-			for name, value := range storage.GetGauges() {
-				agent.SendMetric(cfg.Address, models.Gauge, name, value)
-			}
-
-			for name, value := range storage.GetCounters() {
-				agent.SendMetric(cfg.Address, models.Counter, name, value)
+			if err := storage.SendAllMetricsBatch(cfg.Address); err != nil {
+				log.Printf("Error sending metrics batch: %v", err)
 			}
 		}
 	}

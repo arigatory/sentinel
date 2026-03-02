@@ -1,5 +1,9 @@
 package repository
 
+import (
+	models "github.com/arigatory/sentinel/internal/model"
+)
+
 type Storage interface {
 	UpdateCounter(name string, delta int64)
 
@@ -12,6 +16,8 @@ type Storage interface {
 	GetAllGauges() map[string]float64
 
 	GetAllCounters() map[string]int64
+
+	UpdateBatch(metrics []models.Metrics) error
 
 	Save(path string) error
 

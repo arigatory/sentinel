@@ -193,14 +193,12 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.WriteHeader(http.StatusOK)
 
-	// Сформировать HTML
 	fmt.Fprintln(res, "<!DOCTYPE html>")
 	fmt.Fprintln(res, "<html>")
 	fmt.Fprintln(res, "<head><title>Metrics</title></head>")
 	fmt.Fprintln(res, "<body>")
 	fmt.Fprintln(res, "<h1>All Metrics</h1>")
 
-	// Выводим gauges
 	fmt.Fprintln(res, "<h2>Gauges</h2>")
 	fmt.Fprintln(res, "<ul>")
 	for name, value := range gauges {
@@ -208,7 +206,6 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	fmt.Fprintln(res, "</ul>")
 
-	// counters аналогично
 	fmt.Fprintln(res, "<h2>Counters</h2>")
 	fmt.Fprintln(res, "<ul>")
 	for name, value := range counters {
@@ -236,6 +233,62 @@ func (s *server) pingHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	res.WriteHeader(http.StatusOK)
+}
+
+func (s *server) updateBatchHandler(res http.ResponseWriter, req *http.Request) {
+	var metrics []models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&metrics); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(metrics) == 0 {
+		res.Header().Set("Content-Type", "application/json")
+		res.WriteHeader(http.StatusOK)
+		json.NewEncoder(res).Encode([]models.Metrics{})
+		return
+	}
+
+	// Валидация метрик
+	for i, m := range metrics {
+		switch m.MType {
+		case models.Counter:
+			if m.Delta == nil {
+				http.Error(res, fmt.Sprintf("delta is required for counter at index %d", i), http.StatusBadRequest)
+				return
+			}
+		case models.Gauge:
+			if m.Value == nil {
+				http.Error(res, fmt.Sprintf("value is required for gauge at index %d", i), http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(res, fmt.Sprintf("unknown metric type at index %d", i), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Обновляем все метрики в одной транзакции
+	if err := s.metricsService.UpdateBatch(metrics); err != nil {
+		log.Printf("Error updating batch: %v", err)
+		http.Error(res, "Failed to update metrics", http.StatusInternalServerError)
+		return
+	}
+
+	// Обновляем значения для ответа (для счетчиков возвращаем текущее значение)
+	for i, m := range metrics {
+		if m.MType == models.Counter {
+			updated, _ := s.metricsService.GetCounter(m.ID)
+			metrics[i].Delta = &updated
+		}
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(metrics); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
 }
 
 func main() {
@@ -313,6 +366,8 @@ func main() {
 	r.Use(customMiddleware.Logger(logger))
 	r.Use(customMiddleware.GzipMiddleware)
 
+	r.Post("/updates", srv.updateBatchHandler)
+	r.Post("/updates/", srv.updateBatchHandler)
 	r.Post("/update", srv.updateJSONHandler)
 	r.Post("/value", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)

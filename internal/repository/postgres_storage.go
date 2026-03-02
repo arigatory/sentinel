@@ -5,17 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ Storage = (*PostgresStorage)(nil)
 
-// PostgresStorage реализует Storage для PostgreSQL
 type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresStorage создает новое хранилище на основе PostgreSQL
 func NewPostgresStorage(pool *pgxpool.Pool) *PostgresStorage {
 	return &PostgresStorage{
 		pool: pool,
@@ -26,7 +25,6 @@ func (s *PostgresStorage) UpdateCounter(name string, delta int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// UPSERT: вставляем или обновляем счетчик
 	query := `
 		INSERT INTO counters (name, delta, updated_at)
 		VALUES ($1, $2, CURRENT_TIMESTAMP)
@@ -38,7 +36,6 @@ func (s *PostgresStorage) UpdateCounter(name string, delta int64) {
 
 	_, err := s.pool.Exec(ctx, query, name, delta)
 	if err != nil {
-		// В production лучше возвращать ошибку, но для совместимости с интерфейсом просто логируем
 		fmt.Printf("Error updating counter %s: %v\n", name, err)
 	}
 }
@@ -47,7 +44,6 @@ func (s *PostgresStorage) UpdateGauge(name string, value float64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// UPSERT: вставляем или обновляем gauge
 	query := `
 		INSERT INTO gauges (name, value, updated_at)
 		VALUES ($1, $2, CURRENT_TIMESTAMP)
@@ -141,14 +137,70 @@ func (s *PostgresStorage) GetAllCounters() map[string]int64 {
 	return result
 }
 
-// Save не используется для PostgreSQL (данные уже в БД)
 func (s *PostgresStorage) Save(path string) error {
-	// PostgreSQL хранит данные напрямую, сохранение в файл не требуется
 	return nil
 }
 
-// Load не используется для PostgreSQL (данные берутся из БД)
 func (s *PostgresStorage) Load(path string) error {
-	// PostgreSQL загружает данные из БД, загрузка из файла не требуется
+	return nil
+}
+
+func (s *PostgresStorage) UpdateBatch(metrics []models.Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	counterQuery := `
+		INSERT INTO counters (name, delta, updated_at)
+		VALUES ($1, $2, CURRENT_TIMESTAMP)
+		ON CONFLICT (name)
+		DO UPDATE SET
+			delta = counters.delta + EXCLUDED.delta,
+			updated_at = CURRENT_TIMESTAMP
+	`
+
+	gaugeQuery := `
+		INSERT INTO gauges (name, value, updated_at)
+		VALUES ($1, $2, CURRENT_TIMESTAMP)
+		ON CONFLICT (name)
+		DO UPDATE SET
+			value = EXCLUDED.value,
+			updated_at = CURRENT_TIMESTAMP
+	`
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Counter:
+			if metric.Delta == nil {
+				continue
+			}
+			_, err = tx.Exec(ctx, counterQuery, metric.ID, *metric.Delta)
+			if err != nil {
+				return fmt.Errorf("failed to update counter %s: %w", metric.ID, err)
+			}
+		case models.Gauge:
+			if metric.Value == nil {
+				continue
+			}
+			_, err = tx.Exec(ctx, gaugeQuery, metric.ID, *metric.Value)
+			if err != nil {
+				return fmt.Errorf("failed to update gauge %s: %w", metric.ID, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }

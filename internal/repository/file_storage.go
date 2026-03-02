@@ -7,7 +7,6 @@ import (
 	models "github.com/arigatory/sentinel/internal/model"
 )
 
-// Save сохраняет все метрики в файл в формате JSON.
 func (m *MemStorage) Save(path string) error {
 	gauges := m.GetAllGauges()
 	counters := m.GetAllCounters()
@@ -38,8 +37,6 @@ func (m *MemStorage) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// Load загружает метрики из файла.
-// Если файл не существует — не возвращает ошибку.
 func (m *MemStorage) Load(path string) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 
+	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
 )
 
@@ -82,4 +83,14 @@ func (s *MetricsService) GetAllMetrics() (map[string]float64, map[string]int64) 
 	gauges := s.storage.GetAllGauges()
 	counters := s.storage.GetAllCounters()
 	return gauges, counters
+}
+
+func (s *MetricsService) UpdateBatch(metrics []models.Metrics) error {
+	if err := s.storage.UpdateBatch(metrics); err != nil {
+		return err
+	}
+	if s.syncWrite {
+		s.save()
+	}
+	return nil
 }

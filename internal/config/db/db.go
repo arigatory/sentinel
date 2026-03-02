@@ -80,7 +80,6 @@ func (db *DB) RunMigrations(dsn string) error {
 	}
 	defer m.Close()
 
-	// Применяем все миграции
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
