@@ -64,13 +64,11 @@ func (db *DB) Pool() *pgxpool.Pool {
 	return db.pool
 }
 
-// RunMigrations выполняет миграции базы данных используя golang-migrate
 func (db *DB) RunMigrations(dsn string) error {
 	if db.pool == nil {
 		return fmt.Errorf("database connection is not initialized")
 	}
 
-	// Создаем экземпляр migrate с путем к файлам миграций
 	m, err := migrate.New(
 		"file://migrations",
 		dsn,

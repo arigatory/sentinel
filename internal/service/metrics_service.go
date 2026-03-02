@@ -38,18 +38,24 @@ func (s *MetricsService) save() {
 	}
 }
 
-func (s *MetricsService) UpdateCounter(name string, delta int64) {
-	s.storage.UpdateCounter(name, delta)
+func (s *MetricsService) UpdateCounter(name string, delta int64) error {
+	if err := s.storage.UpdateCounter(name, delta); err != nil {
+		return err
+	}
 	if s.syncWrite {
 		s.save()
 	}
+	return nil
 }
 
-func (s *MetricsService) UpdateGauge(name string, value float64) {
-	s.storage.UpdateGauge(name, value)
+func (s *MetricsService) UpdateGauge(name string, value float64) error {
+	if err := s.storage.UpdateGauge(name, value); err != nil {
+		return err
+	}
 	if s.syncWrite {
 		s.save()
 	}
+	return nil
 }
 
 func (s *MetricsService) Save() {
@@ -79,10 +85,16 @@ func (s *MetricsService) GetGauge(name string) (float64, error) {
 	return value, nil
 }
 
-func (s *MetricsService) GetAllMetrics() (map[string]float64, map[string]int64) {
-	gauges := s.storage.GetAllGauges()
-	counters := s.storage.GetAllCounters()
-	return gauges, counters
+func (s *MetricsService) GetAllMetrics() (map[string]float64, map[string]int64, error) {
+	gauges, err := s.storage.GetAllGauges()
+	if err != nil {
+		return nil, nil, err
+	}
+	counters, err := s.storage.GetAllCounters()
+	if err != nil {
+		return nil, nil, err
+	}
+	return gauges, counters, nil
 }
 
 func (s *MetricsService) UpdateBatch(metrics []models.Metrics) error {

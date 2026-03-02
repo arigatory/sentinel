@@ -22,7 +22,7 @@ func NewPostgresStorage(pool *pgxpool.Pool) *PostgresStorage {
 	}
 }
 
-func (s *PostgresStorage) UpdateCounter(name string, delta int64) {
+func (s *PostgresStorage) UpdateCounter(name string, delta int64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -43,12 +43,10 @@ func (s *PostgresStorage) UpdateCounter(name string, delta int64) {
 		return err
 	})
 
-	if err != nil {
-		fmt.Printf("Error updating counter %s after retries: %v\n", name, err)
-	}
+	return err
 }
 
-func (s *PostgresStorage) UpdateGauge(name string, value float64) {
+func (s *PostgresStorage) UpdateGauge(name string, value float64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -69,9 +67,7 @@ func (s *PostgresStorage) UpdateGauge(name string, value float64) {
 		return err
 	})
 
-	if err != nil {
-		fmt.Printf("Error updating gauge %s after retries: %v\n", name, err)
-	}
+	return err
 }
 
 func (s *PostgresStorage) GetCounter(name string) (int64, bool) {
@@ -114,7 +110,7 @@ func (s *PostgresStorage) GetGauge(name string) (float64, bool) {
 	return value, true
 }
 
-func (s *PostgresStorage) GetAllGauges() map[string]float64 {
+func (s *PostgresStorage) GetAllGauges() (map[string]float64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -145,14 +141,13 @@ func (s *PostgresStorage) GetAllGauges() map[string]float64 {
 	})
 
 	if err != nil {
-		fmt.Printf("Error getting all gauges after retries: %v\n", err)
-		return make(map[string]float64)
+		return nil, fmt.Errorf("failed to get all gauges: %w", err)
 	}
 
-	return result
+	return result, nil
 }
 
-func (s *PostgresStorage) GetAllCounters() map[string]int64 {
+func (s *PostgresStorage) GetAllCounters() (map[string]int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -183,11 +178,10 @@ func (s *PostgresStorage) GetAllCounters() map[string]int64 {
 	})
 
 	if err != nil {
-		fmt.Printf("Error getting all counters after retries: %v\n", err)
-		return make(map[string]int64)
+		return nil, fmt.Errorf("failed to get all counters: %w", err)
 	}
 
-	return result
+	return result, nil
 }
 
 func (s *PostgresStorage) Save(path string) error {

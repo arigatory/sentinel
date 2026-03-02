@@ -16,12 +16,14 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (m *MemStorage) UpdateCounter(name string, delta int64) {
+func (m *MemStorage) UpdateCounter(name string, delta int64) error {
 	m.counters[name] += delta
+	return nil
 }
 
-func (m *MemStorage) UpdateGauge(name string, value float64) {
+func (m *MemStorage) UpdateGauge(name string, value float64) error {
 	m.gauges[name] = value
+	return nil
 }
 
 func (m *MemStorage) GetCounter(name string) (int64, bool) {
@@ -34,20 +36,20 @@ func (m *MemStorage) GetGauge(name string) (float64, bool) {
 	return value, exists
 }
 
-func (m *MemStorage) GetAllGauges() map[string]float64 {
+func (m *MemStorage) GetAllGauges() (map[string]float64, error) {
 	result := make(map[string]float64, len(m.gauges))
 	for name, value := range m.gauges {
 		result[name] = value
 	}
-	return result
+	return result, nil
 }
 
-func (m *MemStorage) GetAllCounters() map[string]int64 {
+func (m *MemStorage) GetAllCounters() (map[string]int64, error) {
 	result := make(map[string]int64, len(m.counters))
 	for name, value := range m.counters {
 		result[name] = value
 	}
-	return result
+	return result, nil
 }
 
 func (m *MemStorage) UpdateBatch(metrics []models.Metrics) error {

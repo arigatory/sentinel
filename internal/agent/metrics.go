@@ -148,20 +148,24 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 	return nil
 }
 
-func (m *MetricsStorage) SendAllMetrics(serverAddr string) {
+func (m *MetricsStorage) SendAllMetrics(serverAddr string) error {
+	var lastErr error
+
 	for name, value := range m.gauges {
 		err := SendMetric(serverAddr, models.Gauge, name, value)
 		if err != nil {
-			fmt.Printf("Error sending gauge %s: %v\n", name, err)
+			lastErr = err
 		}
 	}
 
 	for name, value := range m.counters {
 		err := SendMetric(serverAddr, models.Counter, name, value)
 		if err != nil {
-			fmt.Printf("Error sending counter %s: %v\n", name, err)
+			lastErr = err
 		}
 	}
+
+	return lastErr
 }
 
 func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {

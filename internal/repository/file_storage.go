@@ -8,8 +8,14 @@ import (
 )
 
 func (m *MemStorage) Save(path string) error {
-	gauges := m.GetAllGauges()
-	counters := m.GetAllCounters()
+	gauges, err := m.GetAllGauges()
+	if err != nil {
+		return err
+	}
+	counters, err := m.GetAllCounters()
+	if err != nil {
+		return err
+	}
 
 	metrics := make([]models.Metrics, 0, len(gauges)+len(counters))
 

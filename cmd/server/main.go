@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/arigatory/sentinel/internal/config/db"
+	"github.com/arigatory/sentinel/internal/db"
 	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
@@ -50,7 +50,11 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		log.Printf("Counter %s updated by %d", metricName, value)
-		s.metricsService.UpdateCounter(metricName, value)
+		if err := s.metricsService.UpdateCounter(metricName, value); err != nil {
+			log.Printf("Error updating counter: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if metricType == models.Gauge {
@@ -60,7 +64,11 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		log.Printf("Gauge %s set to %g", metricName, value)
-		s.metricsService.UpdateGauge(metricName, value)
+		if err := s.metricsService.UpdateGauge(metricName, value); err != nil {
+			log.Printf("Error updating gauge: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
@@ -123,7 +131,11 @@ func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "delta is required for counter", http.StatusBadRequest)
 			return
 		}
-		s.metricsService.UpdateCounter(m.ID, *m.Delta)
+		if err := s.metricsService.UpdateCounter(m.ID, *m.Delta); err != nil {
+			log.Printf("Error updating counter: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 		updated, _ := s.metricsService.GetCounter(m.ID)
 		m.Delta = &updated
 	case models.Gauge:
@@ -131,7 +143,11 @@ func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "value is required for gauge", http.StatusBadRequest)
 			return
 		}
-		s.metricsService.UpdateGauge(m.ID, *m.Value)
+		if err := s.metricsService.UpdateGauge(m.ID, *m.Value); err != nil {
+			log.Printf("Error updating gauge: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	default:
 		http.Error(res, "unknown metric type", http.StatusBadRequest)
 		return
@@ -188,7 +204,12 @@ func (s *server) valueJSONHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
-	gauges, counters := s.metricsService.GetAllMetrics()
+	gauges, counters, err := s.metricsService.GetAllMetrics()
+	if err != nil {
+		log.Printf("Error getting metrics: %v", err)
+		http.Error(res, "Failed to get metrics", http.StatusInternalServerError)
+		return
+	}
 
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.WriteHeader(http.StatusOK)
