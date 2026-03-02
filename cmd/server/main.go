@@ -339,7 +339,7 @@ func main() {
 			log.Println("Successfully connected to PostgreSQL")
 
 			// Выполняем миграции
-			if err := database.RunMigrations(cfg.DatabaseDSN); err != nil {
+			if err := database.RunMigrations(cfg.DatabaseDSN, cfg.MigrationsPath); err != nil {
 				log.Printf("Warning: failed to run migrations: %v", err)
 				log.Println("Falling back to file or memory storage")
 				database.Close()

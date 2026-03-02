@@ -64,13 +64,13 @@ func (db *DB) Pool() *pgxpool.Pool {
 	return db.pool
 }
 
-func (db *DB) RunMigrations(dsn string) error {
+func (db *DB) RunMigrations(dsn, migrationsPath string) error {
 	if db.pool == nil {
 		return fmt.Errorf("database connection is not initialized")
 	}
 
 	m, err := migrate.New(
-		"file://migrations",
+		migrationsPath,
 		dsn,
 	)
 	if err != nil {
