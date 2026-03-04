@@ -74,7 +74,10 @@ func TestMetricsService_GetAllMetrics(t *testing.T) {
 	service.UpdateCounter("requests", 100)
 	service.UpdateCounter("errors", 5)
 
-	gauges, counters := service.GetAllMetrics()
+	gauges, counters, err := service.GetAllMetrics()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 
 	if len(gauges) != 2 {
 		t.Errorf("Expected 2 gauges, got %d", len(gauges))

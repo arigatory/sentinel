@@ -11,6 +11,8 @@ type Config struct {
 	StoreInterval   int    // секунды; 0 — синхронная запись
 	FileStoragePath string // путь к файлу хранилища
 	Restore         bool   // загружать ли данные при старте
+	DatabaseDSN     string // строка подключения к базе данных
+	MigrationsPath  string // путь к директории с миграциями
 }
 
 // parseFlags парсит флаги командной строки и возвращает конфигурацию
@@ -21,6 +23,8 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.StoreInterval, "i", 300, "Store interval in seconds (0 = synchronous)")
 	flag.StringVar(&cfg.FileStoragePath, "f", "/tmp/metrics-db.json", "File storage path")
 	flag.BoolVar(&cfg.Restore, "r", true, "Restore metrics from file on start")
+	flag.StringVar(&cfg.DatabaseDSN, "d", "", "Database connection string")
+	flag.StringVar(&cfg.MigrationsPath, "m", "file://migrations", "Database migrations path")
 	flag.Parse()
 
 	// Переменные окружения имеют высший приоритет
@@ -39,6 +43,12 @@ func parseFlags() *Config {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Restore = b
 		}
+	}
+	if v := os.Getenv("DATABASE_DSN"); v != "" {
+		cfg.DatabaseDSN = v
+	}
+	if v := os.Getenv("MIGRATIONS_PATH"); v != "" {
+		cfg.MigrationsPath = v
 	}
 
 	return cfg

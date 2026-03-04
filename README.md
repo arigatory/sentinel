@@ -1,59 +1,114 @@
 # Sentinel
 
-Сервер сбора метрик и системы алертинга для мониторинга производительности приложений.
+Сервер сбора метрик для мониторинга производительности приложений.
 
+## Быстрый старт
 
-# Терминал 1 - запуск сервера
+```bash
+# Запустить PostgreSQL
+docker compose up -d
+
+# Запустить сервер
+DATABASE_DSN="postgres://sentinel:sentinel_password@localhost:5432/sentinel_db?sslmode=disable" \
 go run ./cmd/server/ -a "localhost:8080"
 
-# Терминал 2 - запуск агента
+# В другом терминале - запустить агент
 go run ./cmd/agent/ -a "localhost:8080" -r 10 -p 2
-
-
-
-## О проекте
-
-Sentinel — это легковесная система мониторинга, которая позволяет:
-- Собирать метрики производительности (CPU, память, custom метрики)
-- Хранить исторические данные
-- Настраивать правила алертинга
-- Получать уведомления о критических событиях
-
-Проект разработан в рамках трека «Сервер сбора метрик и алертинга» курса Яндекс Практикум.
-
-## Начало работы
-
-### Инициализация проекта
-
-1. Склонируйте репозиторий в любую подходящую директорию на вашем компьютере
-2. В корне репозитория выполните команду для создания Go-модуля:
-```bash
-go mod init github.com/<your-username>/sentinel
 ```
 
-### Обновление шаблона
 
-Чтобы получать обновления автотестов и других частей шаблона, добавьте upstream-репозиторий:
+
+## Возможности
+
+- Сбор метрик производительности (CPU, память, custom метрики)
+- Хранение в PostgreSQL или в памяти
+- REST API для получения и обновления метрик
+- Батчевая отправка метрик (`POST /updates/`)
+- Автоматические миграции БД
+
+*Проект Яндекс Практикума*
+
+## API
+
+### Одиночные метрики
 ```bash
-git remote add -m v2 template https://github.com/Yandex-Practicum/go-musthave-metrics-tpl.git
+# Отправить метрику
+POST /update
+
+# Получить метрику
+POST /value
 ```
 
-Для обновления кода автотестов:
+### Батчевая отправка
 ```bash
-git fetch template && git checkout template/v2 .github
+# Отправить несколько метрик за раз
+POST /updates/
+Content-Type: application/json
+
+[
+  {"id": "Alloc", "type": "gauge", "value": 123.45},
+  {"id": "PollCount", "type": "counter", "delta": 1}
+]
 ```
 
-Затем добавьте полученные изменения в свой репозиторий.
+Агент использует батчевую отправку по умолчанию. Все операции в PostgreSQL выполняются в одной транзакции.
 
-## Запуск автотестов
+## PostgreSQL
 
-Для успешного запуска автотестов называйте ветки по шаблону `iter<number>`, где `<number>` — порядковый номер инкремента.
+### Запуск
 
-**Примеры:**
-- Ветка `iter4` — запустятся тесты для инкрементов 1-4
-- Мёрж в `main` — запустятся все автотесты
+```bash
+docker compose up -d
+```
 
-Подробнее про локальный и автоматический запуск читайте в [README автотестов](https://github.com/Yandex-Practicum/go-autotests).
+### Подключение
+
+Через переменную окружения:
+```bash
+export DATABASE_DSN="postgres://sentinel:sentinel_password@localhost:5432/sentinel_db?sslmode=disable"
+```
+
+Или флаг `-d`:
+```bash
+go run ./cmd/server/ -d "postgres://..."
+```
+
+### Миграции
+
+При запуске сервер автоматически применит миграции из `migrations/`. Используется [golang-migrate](https://github.com/golang-migrate/migrate).
+
+Создать новую миграцию:
+```bash
+migrate create -ext sql -dir ./migrations -seq your_feature_name
+```
+
+Подробнее см. `migrations/README.md`
+
+### Хранение метрик
+
+Приоритет выбора:
+1. PostgreSQL (если указан `DATABASE_DSN`)
+2. Файл (если указан `FILE_STORAGE_PATH`)
+3. Память (по умолчанию)
+
+### Проверка
+
+```bash
+curl http://localhost:8080/ping  # статус БД
+curl http://localhost:8080/      # все метрики
+```
+
+## Технологии
+
+- Go 1.24
+- PostgreSQL 16
+- [pgx v5](https://github.com/jackc/pgx) - драйвер PostgreSQL
+- [golang-migrate](https://github.com/golang-migrate/migrate) - миграции
+- [chi](https://github.com/go-chi/chi) - HTTP router
+- Context-aware операций
+- Prepared statements
+- Copy protocol
+- Listen/Notify
 
 ## Архитектура проекта
 

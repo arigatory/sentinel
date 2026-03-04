@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arigatory/sentinel/internal/db"
 	customMiddleware "github.com/arigatory/sentinel/internal/middleware"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/internal/repository"
@@ -24,6 +25,7 @@ import (
 
 type server struct {
 	metricsService *service.MetricsService
+	db             *db.DB
 }
 
 func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
@@ -48,7 +50,11 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		log.Printf("Counter %s updated by %d", metricName, value)
-		s.metricsService.UpdateCounter(metricName, value)
+		if err := s.metricsService.UpdateCounter(metricName, value); err != nil {
+			log.Printf("Error updating counter: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if metricType == models.Gauge {
@@ -58,7 +64,11 @@ func (s *server) updateHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		log.Printf("Gauge %s set to %g", metricName, value)
-		s.metricsService.UpdateGauge(metricName, value)
+		if err := s.metricsService.UpdateGauge(metricName, value); err != nil {
+			log.Printf("Error updating gauge: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	log.Printf("Type: %s, Name: %s, Value: %s", metricType, metricName, metricValue)
@@ -121,7 +131,11 @@ func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "delta is required for counter", http.StatusBadRequest)
 			return
 		}
-		s.metricsService.UpdateCounter(m.ID, *m.Delta)
+		if err := s.metricsService.UpdateCounter(m.ID, *m.Delta); err != nil {
+			log.Printf("Error updating counter: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 		updated, _ := s.metricsService.GetCounter(m.ID)
 		m.Delta = &updated
 	case models.Gauge:
@@ -129,7 +143,11 @@ func (s *server) updateJSONHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "value is required for gauge", http.StatusBadRequest)
 			return
 		}
-		s.metricsService.UpdateGauge(m.ID, *m.Value)
+		if err := s.metricsService.UpdateGauge(m.ID, *m.Value); err != nil {
+			log.Printf("Error updating gauge: %v", err)
+			http.Error(res, "Failed to update metric", http.StatusInternalServerError)
+			return
+		}
 	default:
 		http.Error(res, "unknown metric type", http.StatusBadRequest)
 		return
@@ -186,19 +204,22 @@ func (s *server) valueJSONHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
-	gauges, counters := s.metricsService.GetAllMetrics()
+	gauges, counters, err := s.metricsService.GetAllMetrics()
+	if err != nil {
+		log.Printf("Error getting metrics: %v", err)
+		http.Error(res, "Failed to get metrics", http.StatusInternalServerError)
+		return
+	}
 
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.WriteHeader(http.StatusOK)
 
-	// Сформировать HTML
 	fmt.Fprintln(res, "<!DOCTYPE html>")
 	fmt.Fprintln(res, "<html>")
 	fmt.Fprintln(res, "<head><title>Metrics</title></head>")
 	fmt.Fprintln(res, "<body>")
 	fmt.Fprintln(res, "<h1>All Metrics</h1>")
 
-	// Выводим gauges
 	fmt.Fprintln(res, "<h2>Gauges</h2>")
 	fmt.Fprintln(res, "<ul>")
 	for name, value := range gauges {
@@ -206,7 +227,6 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	fmt.Fprintln(res, "</ul>")
 
-	// counters аналогично
 	fmt.Fprintln(res, "<h2>Counters</h2>")
 	fmt.Fprintln(res, "<ul>")
 	for name, value := range counters {
@@ -218,6 +238,80 @@ func (s *server) rootHandler(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(res, "</html>")
 }
 
+func (s *server) pingHandler(res http.ResponseWriter, req *http.Request) {
+	if s.db == nil {
+		http.Error(res, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(req.Context(), 1*time.Second)
+	defer cancel()
+
+	if err := s.db.Ping(ctx); err != nil {
+		log.Printf("Database ping failed: %v", err)
+		http.Error(res, "Database connection failed", http.StatusInternalServerError)
+		return
+	}
+
+	res.WriteHeader(http.StatusOK)
+}
+
+func (s *server) updateBatchHandler(res http.ResponseWriter, req *http.Request) {
+	var metrics []models.Metrics
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(&metrics); err != nil {
+		http.Error(res, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(metrics) == 0 {
+		res.Header().Set("Content-Type", "application/json")
+		res.WriteHeader(http.StatusOK)
+		json.NewEncoder(res).Encode([]models.Metrics{})
+		return
+	}
+
+	// Валидация метрик
+	for i, m := range metrics {
+		switch m.MType {
+		case models.Counter:
+			if m.Delta == nil {
+				http.Error(res, fmt.Sprintf("delta is required for counter at index %d", i), http.StatusBadRequest)
+				return
+			}
+		case models.Gauge:
+			if m.Value == nil {
+				http.Error(res, fmt.Sprintf("value is required for gauge at index %d", i), http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(res, fmt.Sprintf("unknown metric type at index %d", i), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Обновляем все метрики в одной транзакции
+	if err := s.metricsService.UpdateBatch(metrics); err != nil {
+		log.Printf("Error updating batch: %v", err)
+		http.Error(res, "Failed to update metrics", http.StatusInternalServerError)
+		return
+	}
+
+	// Обновляем значения для ответа (для счетчиков возвращаем текущее значение)
+	for i, m := range metrics {
+		if m.MType == models.Counter {
+			updated, _ := s.metricsService.GetCounter(m.ID)
+			metrics[i].Delta = &updated
+		}
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(res).Encode(metrics); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
 func main() {
 	cfg := parseFlags()
 
@@ -225,11 +319,51 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	storage := repository.NewMemStorage()
-	metricsService := service.NewMetricsService(storage)
+	var storage repository.Storage
+	var database *db.DB
+	var metricsService *service.MetricsService
 
-	// Настраиваем персистентность
-	if cfg.FileStoragePath != "" {
+	// Логика выбора хранилища:
+	// 1. PostgreSQL (если есть DATABASE_DSN)
+	// 2. File storage (если есть FILE_STORAGE_PATH)
+	// 3. Memory storage (fallback)
+
+	if cfg.DatabaseDSN != "" {
+		// Пытаемся подключиться к PostgreSQL
+		var err error
+		database, err = db.NewDB(cfg.DatabaseDSN)
+		if err != nil {
+			log.Printf("Warning: failed to connect to database: %v", err)
+			log.Println("Falling back to file or memory storage")
+		} else {
+			log.Println("Successfully connected to PostgreSQL")
+
+			// Выполняем миграции
+			if err := database.RunMigrations(cfg.DatabaseDSN, cfg.MigrationsPath); err != nil {
+				log.Printf("Warning: failed to run migrations: %v", err)
+				log.Println("Falling back to file or memory storage")
+				database.Close()
+				database = nil
+			} else {
+				log.Println("Database migrations completed successfully")
+				// Используем PostgreSQL storage
+				storage = repository.NewPostgresStorage(database.Pool())
+				log.Println("Using PostgreSQL storage for metrics")
+				defer database.Close()
+			}
+		}
+	}
+
+	// Если PostgreSQL недоступен, используем Memory storage
+	if storage == nil {
+		storage = repository.NewMemStorage()
+		log.Println("Using in-memory storage for metrics")
+	}
+
+	metricsService = service.NewMetricsService(storage)
+
+	// Настраиваем персистентность для file storage (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" {
 		syncWrite := cfg.StoreInterval == 0
 		metricsService.ConfigurePersistence(cfg.FileStoragePath, syncWrite)
 
@@ -242,7 +376,10 @@ func main() {
 		}
 	}
 
-	srv := &server{metricsService: metricsService}
+	srv := &server{
+		metricsService: metricsService,
+		db:             database,
+	}
 
 	r := chi.NewRouter()
 
@@ -250,10 +387,13 @@ func main() {
 	r.Use(customMiddleware.Logger(logger))
 	r.Use(customMiddleware.GzipMiddleware)
 
+	r.Post("/updates", srv.updateBatchHandler)
+	r.Post("/updates/", srv.updateBatchHandler)
 	r.Post("/update", srv.updateJSONHandler)
 	r.Post("/value", srv.valueJSONHandler)
 	r.Post("/update/{type}/{name}/{value}", srv.updateHandler)
 	r.Get("/value/{type}/{name}", srv.valueHandler)
+	r.Get("/ping", srv.pingHandler)
 	r.Get("/", srv.rootHandler)
 
 	httpServer := &http.Server{
@@ -267,7 +407,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
+	// Периодическое сохранение в файл (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" && cfg.StoreInterval > 0 {
 		go func() {
 			ticker := time.NewTicker(time.Duration(cfg.StoreInterval) * time.Second)
 			defer ticker.Stop()
@@ -290,7 +431,7 @@ func main() {
 	go func() {
 		log.Printf("Starting metrics server on %s (read: 5s, write: 10s, idle: 60s)", cfg.Address)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
+			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
 
@@ -299,7 +440,8 @@ func main() {
 
 	cancel()
 
-	if cfg.FileStoragePath != "" {
+	// Финальное сохранение в файл (только если не используем PostgreSQL)
+	if database == nil && cfg.FileStoragePath != "" {
 		metricsService.Save()
 		log.Printf("Final metrics save to %s completed", cfg.FileStoragePath)
 	}
