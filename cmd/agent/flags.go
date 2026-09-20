@@ -11,6 +11,7 @@ type Config struct {
 	ReportInterval int
 	PollInterval   int
 	Key            string // ключ подписи; пустой — подпись выключена
+	RateLimit      int    // максимум одновременно исходящих запросов
 }
 
 func parseFlags() *Config {
@@ -20,6 +21,7 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.ReportInterval, "r", 10, "Report interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", 2, "Poll interval in seconds")
 	flag.StringVar(&cfg.Key, "k", "", "Key for request signing (HMAC-SHA256)")
+	flag.IntVar(&cfg.RateLimit, "l", 1, "Maximum number of concurrent outgoing requests")
 	flag.Parse()
 
 	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
@@ -37,6 +39,16 @@ func parseFlags() *Config {
 	}
 	if envKey := os.Getenv("KEY"); envKey != "" {
 		cfg.Key = envKey
+	}
+	if envRateLimit := os.Getenv("RATE_LIMIT"); envRateLimit != "" {
+		if value, err := strconv.Atoi(envRateLimit); err == nil {
+			cfg.RateLimit = value
+		}
+	}
+
+	// воркер-пул не имеет смысла при нулевом или отрицательном размере
+	if cfg.RateLimit < 1 {
+		cfg.RateLimit = 1
 	}
 
 	return cfg

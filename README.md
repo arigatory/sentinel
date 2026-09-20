@@ -98,6 +98,31 @@ curl http://localhost:8080/ping  # статус БД
 curl http://localhost:8080/      # все метрики
 ```
 
+## Архитектура агента
+
+Сбор метрик и отправка разнесены по независимым горутинам:
+
+- **сборщик runtime-метрик** — опрашивает `runtime.MemStats` раз в `-p` секунд;
+- **сборщик системных метрик** — через [gopsutil](https://github.com/shirou/gopsutil) собирает
+  `TotalMemory`, `FreeMemory` и `CPUutilization1..N`, где N — число логических CPU,
+  определяемое во время исполнения;
+- **репортёр** — раз в `-r` секунд снимает согласованный срез метрик и раздаёт его воркерам;
+- **пул воркеров** — отправляет метрики на сервер, сам в сеть репортёр не ходит.
+
+Количество одновременно исходящих запросов ограничено сверху размером пула:
+
+```bash
+go run ./cmd/agent/ -a localhost:8080 -l 5
+RATE_LIMIT=5 go run ./cmd/agent/ -a localhost:8080
+```
+
+По умолчанию `-l 1` — агент работает последовательно. Значения меньше 1 поднимаются до 1.
+Хранилище метрик защищено `sync.RWMutex`, а геттеры отдают копии, поэтому читатель
+не конфликтует со сборщиками.
+
+Агент завершается по `SIGINT`/`SIGTERM`: сборщики останавливаются, репортёр закрывает
+очередь заданий, воркеры дорабатывают остаток и процесс выходит.
+
 ## Подпись данных
 
 Тело запроса можно подписывать хешем HMAC-SHA256, передаваемым в HTTP-заголовке `HashSHA256`.
@@ -135,6 +160,7 @@ KEY=supersecret go run ./cmd/agent/ -a localhost:8080
 - [pgx v5](https://github.com/jackc/pgx) - драйвер PostgreSQL
 - [golang-migrate](https://github.com/golang-migrate/migrate) - миграции
 - [chi](https://github.com/go-chi/chi) - HTTP router
+- [gopsutil](https://github.com/shirou/gopsutil) - системные метрики (память, загрузка CPU)
 - Context-aware операций
 - Prepared statements
 - Copy protocol
