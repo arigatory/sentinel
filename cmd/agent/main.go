@@ -32,7 +32,7 @@ func main() {
 		case <-reportTicker.C:
 			log.Println("Sending metrics to server...")
 
-			if err := storage.SendAllMetricsBatch(cfg.Address); err != nil {
+			if err := storage.SendAllMetricsBatch(cfg.Address, cfg.Key); err != nil {
 				log.Printf("Error sending metrics batch: %v", err)
 			}
 		}

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/arigatory/sentinel/internal/hash"
 	models "github.com/arigatory/sentinel/internal/model"
 	"github.com/arigatory/sentinel/pkg/retry"
 )
@@ -79,7 +80,7 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-func SendMetric(serverAddr, metricType, name string, value interface{}) error {
+func SendMetric(serverAddr, metricType, name, key string, value interface{}) error {
 	m := models.Metrics{
 		ID:    name,
 		MType: metricType,
@@ -120,6 +121,12 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 		Timeout: 5 * time.Second,
 	}
 
+	// подпись считается от несжатого тела, до gzip
+	var signature string
+	if key != "" {
+		signature = hash.Sign(body, key)
+	}
+
 	err = retry.Do(ctx, cfg, func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
 		if err != nil {
@@ -128,6 +135,9 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if key != "" {
+			req.Header.Set(hash.Header, signature)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -148,18 +158,18 @@ func SendMetric(serverAddr, metricType, name string, value interface{}) error {
 	return nil
 }
 
-func (m *MetricsStorage) SendAllMetrics(serverAddr string) error {
+func (m *MetricsStorage) SendAllMetrics(serverAddr, key string) error {
 	var lastErr error
 
 	for name, value := range m.gauges {
-		err := SendMetric(serverAddr, models.Gauge, name, value)
+		err := SendMetric(serverAddr, models.Gauge, name, key, value)
 		if err != nil {
 			lastErr = err
 		}
 	}
 
 	for name, value := range m.counters {
-		err := SendMetric(serverAddr, models.Counter, name, value)
+		err := SendMetric(serverAddr, models.Counter, name, key, value)
 		if err != nil {
 			lastErr = err
 		}
@@ -168,7 +178,7 @@ func (m *MetricsStorage) SendAllMetrics(serverAddr string) error {
 	return lastErr
 }
 
-func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
+func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -199,6 +209,12 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 		Timeout: 5 * time.Second,
 	}
 
+	// подпись считается от несжатого тела, до gzip
+	var signature string
+	if key != "" {
+		signature = hash.Sign(body, key)
+	}
+
 	err = retry.Do(ctx, cfg, func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf.Bytes()))
 		if err != nil {
@@ -207,6 +223,9 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+		if key != "" {
+			req.Header.Set(hash.Header, signature)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -227,7 +246,7 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 	return nil
 }
 
-func (m *MetricsStorage) SendAllMetricsBatch(serverAddr string) error {
+func (m *MetricsStorage) SendAllMetricsBatch(serverAddr, key string) error {
 	var metrics []models.Metrics
 
 	for name, value := range m.gauges {
@@ -248,5 +267,5 @@ func (m *MetricsStorage) SendAllMetricsBatch(serverAddr string) error {
 		})
 	}
 
-	return SendMetricsBatch(serverAddr, metrics)
+	return SendMetricsBatch(serverAddr, metrics, key)
 }

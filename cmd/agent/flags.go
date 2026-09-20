@@ -10,6 +10,7 @@ type Config struct {
 	Address        string
 	ReportInterval int
 	PollInterval   int
+	Key            string // ключ подписи; пустой — подпись выключена
 }
 
 func parseFlags() *Config {
@@ -18,6 +19,7 @@ func parseFlags() *Config {
 	flag.StringVar(&cfg.Address, "a", "localhost:8080", "HTTP server address")
 	flag.IntVar(&cfg.ReportInterval, "r", 10, "Report interval in seconds")
 	flag.IntVar(&cfg.PollInterval, "p", 2, "Poll interval in seconds")
+	flag.StringVar(&cfg.Key, "k", "", "Key for request signing (HMAC-SHA256)")
 	flag.Parse()
 
 	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
@@ -32,6 +34,9 @@ func parseFlags() *Config {
 		if value, err := strconv.Atoi(envPollInterval); err == nil {
 			cfg.PollInterval = value
 		}
+	}
+	if envKey := os.Getenv("KEY"); envKey != "" {
+		cfg.Key = envKey
 	}
 
 	return cfg
