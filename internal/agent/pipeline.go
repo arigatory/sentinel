@@ -43,11 +43,11 @@ func PollSystem(ctx context.Context, storage *MetricsStorage, interval time.Dura
 	}
 }
 
-// Report раз в interval снимает срез метрик и раздаёт его воркерам через jobs.
+// Report раз в interval снимает срез метрик и отдаёт его воркерам одним заданием.
 //
 // Отправкой занимаются воркеры, поэтому репортер никогда не ходит в сеть сам.
 // При завершении закрывает jobs — это сигнал воркерам остановиться.
-func Report(ctx context.Context, storage *MetricsStorage, jobs chan<- models.Metrics, interval time.Duration) {
+func Report(ctx context.Context, storage *MetricsStorage, jobs chan<- []models.Metrics, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	defer close(jobs)
@@ -56,14 +56,16 @@ func Report(ctx context.Context, storage *MetricsStorage, jobs chan<- models.Met
 		select {
 		case <-ticker.C:
 			metrics := storage.Snapshot()
+			if len(metrics) == 0 {
+				continue
+			}
+
 			log.Printf("Sending %d metrics to server...", len(metrics))
 
-			for _, m := range metrics {
-				select {
-				case jobs <- m:
-				case <-ctx.Done():
-					return
-				}
+			select {
+			case jobs <- metrics:
+			case <-ctx.Done():
+				return
 			}
 		case <-ctx.Done():
 			return
@@ -72,9 +74,9 @@ func Report(ctx context.Context, storage *MetricsStorage, jobs chan<- models.Met
 }
 
 // StartWorkers поднимает пул из rateLimit воркеров — столько одновременно
-// исходящих запросов агент допускает максимум. Воркеры живут, пока не закроют
-// jobs, и дорабатывают уже принятые задания.
-func StartWorkers(jobs <-chan models.Metrics, serverAddr, key string, rateLimit int) *sync.WaitGroup {
+// исходящих батч-запросов агент допускает максимум. Воркеры живут, пока не
+// закроют jobs, и дорабатывают уже принятые задания.
+func StartWorkers(jobs <-chan []models.Metrics, serverAddr, key string, rateLimit int) *sync.WaitGroup {
 	var wg sync.WaitGroup
 
 	for i := 1; i <= rateLimit; i++ {
@@ -83,9 +85,9 @@ func StartWorkers(jobs <-chan models.Metrics, serverAddr, key string, rateLimit 
 		go func(id int) {
 			defer wg.Done()
 
-			for m := range jobs {
-				if err := SendMetricJSON(serverAddr, m, key); err != nil {
-					log.Printf("Worker %d: failed to send metric %q: %v", id, m.ID, err)
+			for batch := range jobs {
+				if err := SendMetricsBatch(serverAddr, batch, key); err != nil {
+					log.Printf("Worker %d: failed to send batch of %d metrics: %v", id, len(batch), err)
 				}
 			}
 		}(i)

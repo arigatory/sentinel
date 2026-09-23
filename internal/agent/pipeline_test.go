@@ -14,11 +14,13 @@ import (
 )
 
 // TestStartWorkersRespectsRateLimit — главная проверка инкремента: сколько бы
-// заданий ни стояло в очереди, одновременно в полёте не больше rateLimit запросов.
+// батч-заданий ни стояло в очереди, одновременно в полёте не больше rateLimit
+// запросов.
 func TestStartWorkersRespectsRateLimit(t *testing.T) {
 	const (
 		rateLimit  = 3
-		totalJobs  = 30
+		totalJobs  = 12
+		batchSize  = 5
 		handlerLag = 20 * time.Millisecond
 	)
 
@@ -48,18 +50,23 @@ func TestStartWorkersRespectsRateLimit(t *testing.T) {
 
 	addr := strings.TrimPrefix(server.URL, "http://")
 
-	jobs := make(chan models.Metrics)
+	jobs := make(chan []models.Metrics, rateLimit)
 	workers := StartWorkers(jobs, addr, "", rateLimit)
 
 	for i := 0; i < totalJobs; i++ {
-		v := float64(i)
-		jobs <- models.Metrics{ID: "Gauge", MType: models.Gauge, Value: &v}
+		batch := make([]models.Metrics, 0, batchSize)
+		for j := 0; j < batchSize; j++ {
+			v := float64(i*batchSize + j)
+			batch = append(batch, models.Metrics{ID: "Gauge", MType: models.Gauge, Value: &v})
+		}
+		jobs <- batch
 	}
 	close(jobs)
 	workers.Wait()
 
+	// Каждый батч — ровно один запрос, а не batchSize запросов.
 	if got := atomic.LoadInt64(&handled); got != totalJobs {
-		t.Errorf("Expected %d requests to reach the server, got %d", totalJobs, got)
+		t.Errorf("Expected %d batch requests to reach the server, got %d", totalJobs, got)
 	}
 	if got := atomic.LoadInt64(&maxSeen); got > rateLimit {
 		t.Errorf("Expected at most %d concurrent requests, observed %d", rateLimit, got)
@@ -74,7 +81,7 @@ func TestReportSendsSnapshotAndClosesJobs(t *testing.T) {
 	storage.SetGauge("Alloc", 42)
 	storage.AddCounter("PollCount", 1)
 
-	jobs := make(chan models.Metrics, 16)
+	jobs := make(chan []models.Metrics, 16)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -83,14 +90,12 @@ func TestReportSendsSnapshotAndClosesJobs(t *testing.T) {
 		close(done)
 	}()
 
-	got := make(map[string]bool)
-	for i := 0; i < 2; i++ {
-		select {
-		case m := <-jobs:
-			got[m.ID] = true
-		case <-time.After(2 * time.Second):
-			t.Fatal("Timed out waiting for the reporter to emit metrics")
-		}
+	// Весь снимок приходит одним заданием.
+	var batch []models.Metrics
+	select {
+	case batch = <-jobs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out waiting for the reporter to emit metrics")
 	}
 
 	cancel()
@@ -101,12 +106,18 @@ func TestReportSendsSnapshotAndClosesJobs(t *testing.T) {
 		t.Fatal("Report did not stop after context cancellation")
 	}
 
-	if _, ok := <-jobs; ok {
-		// канал мог содержать остаток снимка — вычитываем до закрытия
-		for range jobs {
-		}
+	// Канал должен быть закрыт репортёром.
+	for range jobs {
 	}
 
+	got := make(map[string]bool, len(batch))
+	for _, m := range batch {
+		got[m.ID] = true
+	}
+
+	if len(batch) != 2 {
+		t.Errorf("Expected the whole snapshot in one job, got %d metrics", len(batch))
+	}
 	if !got["Alloc"] || !got["PollCount"] {
 		t.Errorf("Expected both Alloc and PollCount in the snapshot, got %v", got)
 	}

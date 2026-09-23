@@ -23,7 +23,9 @@ func main() {
 	defer stop()
 
 	storage := agent.NewMetricsStorage()
-	jobs := make(chan models.Metrics)
+	// Буфер по числу воркеров: репортёр отдаёт задание и возвращается к своему
+	// тику, не дожидаясь освобождения конкретного воркера.
+	jobs := make(chan []models.Metrics, cfg.RateLimit)
 
 	log.Printf("Agent started. Server: %s, Poll: %ds, Report: %ds, Rate limit: %d",
 		cfg.Address, cfg.PollInterval, cfg.ReportInterval, cfg.RateLimit)

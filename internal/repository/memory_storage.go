@@ -9,7 +9,7 @@ import (
 var _ Storage = (*MemStorage)(nil)
 
 type MemStorage struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	counters map[string]int64
 	gauges   map[string]float64
 }
@@ -36,22 +36,22 @@ func (m *MemStorage) UpdateGauge(name string, value float64) error {
 }
 
 func (m *MemStorage) GetCounter(name string) (int64, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	value, exists := m.counters[name]
 	return value, exists
 }
 
 func (m *MemStorage) GetGauge(name string) (float64, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	value, exists := m.gauges[name]
 	return value, exists
 }
 
 func (m *MemStorage) GetAllGauges() (map[string]float64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	result := make(map[string]float64, len(m.gauges))
 	for name, value := range m.gauges {
 		result[name] = value
@@ -60,8 +60,8 @@ func (m *MemStorage) GetAllGauges() (map[string]float64, error) {
 }
 
 func (m *MemStorage) GetAllCounters() (map[string]int64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	result := make(map[string]int64, len(m.counters))
 	for name, value := range m.counters {
 		result[name] = value

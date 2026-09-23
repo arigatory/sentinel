@@ -21,7 +21,7 @@ import (
 // одновременного вызова из нескольких горутин: сбор runtime-метрик,
 // сбор системных метрик и отправка работают параллельно.
 type MetricsStorage struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	gauges   map[string]float64
 	counters map[string]int64
 }
@@ -41,8 +41,8 @@ func (m *MetricsStorage) SetGauge(name string, value float64) {
 
 // GetGauges возвращает копию — она переживает последующие изменения хранилища.
 func (m *MetricsStorage) GetGauges() map[string]float64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	gauges := make(map[string]float64, len(m.gauges))
 	for name, value := range m.gauges {
@@ -59,8 +59,8 @@ func (m *MetricsStorage) AddCounter(name string, delta int64) {
 
 // GetCounters возвращает копию — она переживает последующие изменения хранилища.
 func (m *MetricsStorage) GetCounters() map[string]int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	counters := make(map[string]int64, len(m.counters))
 	for name, delta := range m.counters {
@@ -72,8 +72,8 @@ func (m *MetricsStorage) GetCounters() map[string]int64 {
 // Snapshot возвращает все метрики одним согласованным срезом — его репортер
 // раздаёт воркерам.
 func (m *MetricsStorage) Snapshot() []models.Metrics {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	metrics := make([]models.Metrics, 0, len(m.gauges)+len(m.counters))
 
@@ -134,25 +134,29 @@ func (m *MetricsStorage) CollectRuntimeMetrics() {
 	m.SetGauge("RandomValue", rand.Float64())
 }
 
-// SendMetricJSON отправляет одну метрику на POST /update: JSON, сжатый gzip,
-// с подписью HMAC-SHA256 и повторами при сетевых ошибках.
+// SendMetricsBatch отправляет срез метрик одним запросом на POST /updates/:
+// JSON, сжатый gzip, с подписью HMAC-SHA256 и повторами при сетевых ошибках.
 // Именно эту функцию вызывают воркеры пула.
-func SendMetricJSON(serverAddr string, metric models.Metrics, key string) error {
-	body, err := json.Marshal(metric)
+func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	body, err := json.Marshal(metrics)
 	if err != nil {
-		return fmt.Errorf("failed to marshal metric: %w", err)
+		return fmt.Errorf("failed to marshal metrics: %w", err)
 	}
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	if _, err = gw.Write(body); err != nil {
-		return fmt.Errorf("failed to compress metric: %w", err)
+		return fmt.Errorf("failed to compress metrics: %w", err)
 	}
 	if err = gw.Close(); err != nil {
 		return fmt.Errorf("failed to close gzip writer: %w", err)
 	}
 
-	url := fmt.Sprintf("http://%s/update", serverAddr)
+	url := fmt.Sprintf("http://%s/updates/", serverAddr)
 
 	cfg := retry.DefaultConfig()
 	cfg.Classifier = retry.NewNetworkErrorClassifier()
@@ -195,7 +199,7 @@ func SendMetricJSON(serverAddr string, metric models.Metrics, key string) error 
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to send metric after retries: %w", err)
+		return fmt.Errorf("failed to send metrics batch after retries: %w", err)
 	}
 
 	return nil
