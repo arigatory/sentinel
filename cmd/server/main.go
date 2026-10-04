@@ -386,6 +386,7 @@ func main() {
 	r.Use(middleware.StripSlashes)
 	r.Use(customMiddleware.Logger(logger))
 	r.Use(customMiddleware.GzipMiddleware)
+	r.Use(customMiddleware.HashMiddleware(cfg.Key))
 
 	r.Post("/updates", srv.updateBatchHandler)
 	r.Post("/updates/", srv.updateBatchHandler)

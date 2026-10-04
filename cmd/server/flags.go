@@ -13,6 +13,7 @@ type Config struct {
 	Restore         bool   // загружать ли данные при старте
 	DatabaseDSN     string // строка подключения к базе данных
 	MigrationsPath  string // путь к директории с миграциями
+	Key             string // ключ подписи; пустой — подпись выключена
 }
 
 // parseFlags парсит флаги командной строки и возвращает конфигурацию
@@ -25,6 +26,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&cfg.Restore, "r", true, "Restore metrics from file on start")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "Database connection string")
 	flag.StringVar(&cfg.MigrationsPath, "m", "file://migrations", "Database migrations path")
+	flag.StringVar(&cfg.Key, "k", "", "Key for request signing (HMAC-SHA256)")
 	flag.Parse()
 
 	// Переменные окружения имеют высший приоритет
@@ -49,6 +51,9 @@ func parseFlags() *Config {
 	}
 	if v := os.Getenv("MIGRATIONS_PATH"); v != "" {
 		cfg.MigrationsPath = v
+	}
+	if v := os.Getenv("KEY"); v != "" {
+		cfg.Key = v
 	}
 
 	return cfg
